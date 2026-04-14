@@ -231,6 +231,7 @@ type configurationType = {
   netceteraSDKApiKey: option<string>,
   displayDefaultSavedPaymentIcon: bool,
   enablePartialLoading: bool,
+  paymentMethodOrder: option<array<string>>,
   disableBranding: bool,
   hideConfirmButton: bool,
 }
@@ -845,6 +846,7 @@ let parseConfigurationDict = (configObj, from) => {
       expiryDate: getString(placeholderDict, "expiryDate", "MM / YY"),
       cvv: getString(placeholderDict, "cvv", "CVC"),
     },
+    paymentMethodOrder: getOptionalStrArray(configObj, "paymentMethodOrder"),
     disableBranding: getBool(configObj, "disableBranding", false),
   }
   configuration
