@@ -38,6 +38,7 @@ let make = () => {
           handleSuccessFailure(~apiResStatus=PaymentConfirmTypes.defaultConfirmError, ())
         } else {
           let pmlResponse = AccountPaymentMethodType.jsonToAccountPaymentMethodType(
+            ~order=?nativeProp.configuration.paymentMethodOrder,
             accountPaymentMethodData,
           )
           if pmlResponse.payment_methods->Array.length === 0 {
@@ -50,7 +51,10 @@ let make = () => {
 
       let handleCustomerPaymentMethodsResponse = customerPaymentMethodData => {
         setCustomerPaymentMethodData(_ => Some(
-          CustomerPaymentMethodType.jsonToCustomerPaymentMethodType(customerPaymentMethodData),
+          CustomerPaymentMethodType.jsonToCustomerPaymentMethodType(
+            ~order=?nativeProp.configuration.paymentMethodOrder,
+            customerPaymentMethodData,
+          ),
         ))
       }
 

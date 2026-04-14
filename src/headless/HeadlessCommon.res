@@ -432,7 +432,10 @@ let apiHandler = async (
   let customerSavedPMData = await savedPaymentMethodAPICall(nativeProp)
   switch customerSavedPMData {
   | Some(obj) =>
-    let spmData = obj->CustomerPaymentMethodType.jsonToCustomerPaymentMethodType
+    let spmData =
+      obj->CustomerPaymentMethodType.jsonToCustomerPaymentMethodType(
+        ~order=?nativeProp.configuration.paymentMethodOrder,
+      )
     let sessionSpmData = spmData.customer_payment_methods->Array.filter(data => {
       switch (data.payment_method_type_wallet, ReactNative.Platform.os) {
       | (GOOGLE_PAY, #android) | (APPLE_PAY, #ios) => true

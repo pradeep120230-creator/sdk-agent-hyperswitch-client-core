@@ -133,14 +133,25 @@ let processCustomerPaymentMethods = (jsonArray: array<JSON.t>) => {
   })
 }
 
-let sortPaymentListArray = plist => {
+let sortPaymentListArray = (~order=?, plist) => {
+  let useCustomOrder = switch order {
+  | Some(arr) => arr->Array.length > 0
+  | None => false
+  }
   plist->Array.sort((s1, s2) => {
-    let priority1 = Types.priorityArr->Array.findIndex(x => x == s1.payment_method_type)
-    let priority2 = Types.priorityArr->Array.findIndex(x => x == s2.payment_method_type)
-    let normalizedPriority1 = priority1 == -1 ? -1 : priority1
-    let normalizedPriority2 = priority2 == -1 ? -1 : priority2
-    if normalizedPriority1 !== normalizedPriority2 {
-      Int.compare(normalizedPriority2, normalizedPriority1)
+    let (priority1, priority2) = if useCustomOrder {
+      let customOrder = order->Option.getOr([])
+      let fallback = customOrder->Array.length
+      let i1 = customOrder->Array.findIndex(x => x == s1.payment_method_type)
+      let i2 = customOrder->Array.findIndex(x => x == s2.payment_method_type)
+      (i1 == -1 ? -fallback : -i1, i2 == -1 ? -fallback : -i2)
+    } else {
+      let p1 = Types.priorityArr->Array.findIndex(x => x == s1.payment_method_type)
+      let p2 = Types.priorityArr->Array.findIndex(x => x == s2.payment_method_type)
+      (p1 == -1 ? -1 : p1, p2 == -1 ? -1 : p2)
+    }
+    if priority1 !== priority2 {
+      Int.compare(priority2, priority1)
     } else {
       let time1 = Date.fromString(s1.last_used_at)->Js.Date.valueOf
       let time2 = Date.fromString(s2.last_used_at)->Js.Date.valueOf
@@ -163,12 +174,15 @@ let filterPaymentListArray = plist => {
   )
 }
 
-let jsonToCustomerPaymentMethodType: JSON.t => customerPaymentMethods = res => {
+let jsonToCustomerPaymentMethodType: (~order: array<string>=?, JSON.t) => customerPaymentMethods = (
+  ~order=?,
+  res,
+) => {
   let customerPaymentMethodsDict = res->getDictFromJson
   {
     customer_payment_methods: getArray(customerPaymentMethodsDict, "customer_payment_methods")
     ->processCustomerPaymentMethods
-    ->sortPaymentListArray
+    ->sortPaymentListArray(~order?)
     ->filterPaymentListArray,
     is_guest_customer: getBool(customerPaymentMethodsDict, "is_guest_customer", true),
   }

@@ -100,6 +100,7 @@ let useUpdateIntentListener = (
                   )
                 } else {
                   let pmlResponse = AccountPaymentMethodType.jsonToAccountPaymentMethodType(
+                    ~order=?currentNativeProp.configuration.paymentMethodOrder,
                     accountPaymentMethodData,
                   )
                   setAccountPaymentMethodData(_ => Some(pmlResponse))
@@ -110,6 +111,7 @@ let useUpdateIntentListener = (
                 setCustomerPaymentMethodData(
                   _ => Some(
                     CustomerPaymentMethodType.jsonToCustomerPaymentMethodType(
+                      ~order=?currentNativeProp.configuration.paymentMethodOrder,
                       customerPaymentMethodData,
                     ),
                   ),
