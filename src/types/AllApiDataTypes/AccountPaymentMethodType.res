@@ -177,22 +177,29 @@ let processPaymentMethods = (jsonArray: array<JSON.t>) => {
   resultDict->Dict.toArray->Array.map(((_, paymentMethod)) => paymentMethod)
 }
 
-let sortPaymentListArray = (plist: payment_methods) => {
+let sortPaymentListArray = (plist: payment_methods, ~customOrder: option<array<string>>=?) => {
+  let order = switch customOrder {
+  | Some(arr) if arr->Array.length > 0 => arr->Array.toReversed
+  | _ => Types.priorityArr
+  }
   plist->Array.sort((s1, s2) => {
     let intResult =
-      Types.priorityArr->Array.findIndex(x => x == s2.payment_method_type) -
-        Types.priorityArr->Array.findIndex(x => x == s1.payment_method_type)
+      order->Array.findIndex(x => x == s2.payment_method_type) -
+        order->Array.findIndex(x => x == s1.payment_method_type)
     intResult->Ordering.fromInt
   })
   plist
 }
 
-let jsonToAccountPaymentMethodType: JSON.t => accountPaymentMethods = res => {
+let jsonToAccountPaymentMethodType = (
+  res: JSON.t,
+  ~paymentMethodOrder: option<array<string>>=?,
+): accountPaymentMethods => {
   let accountPaymentMethodsDict = res->getDictFromJson
   {
     payment_methods: getArray(accountPaymentMethodsDict, "payment_methods")
     ->processPaymentMethods
-    ->sortPaymentListArray,
+    ->sortPaymentListArray(~customOrder=?paymentMethodOrder),
     merchant_name: getString(accountPaymentMethodsDict, "merchant_name", ""),
     collect_billing_details_from_wallets: getBool(
       accountPaymentMethodsDict,
