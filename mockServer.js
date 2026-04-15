@@ -109,9 +109,9 @@ app.get('/health', (req, res) => {
 app.get('/create-payment-intent', async (req, res) => {
   try {
     const paymentData = {
-      ...mockData.paymentIntentBody,
       amount: 100,
       currency: 'USD',
+      ...mockData.paymentIntentBody,
     };
 
     if (process.env.PROFILE_ID) {

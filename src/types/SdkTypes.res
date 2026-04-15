@@ -233,6 +233,7 @@ type configurationType = {
   enablePartialLoading: bool,
   disableBranding: bool,
   hideConfirmButton: bool,
+  hideConfirmPayment: bool,
 }
 
 type sdkState =
@@ -797,6 +798,7 @@ let parseConfigurationDict = (configObj, from) => {
     savedPaymentScreenHeaderText: getOptionString(configObj, "savedPaymentSheetHeaderLabel"),
     displayDefaultSavedPaymentIcon: getBool(configObj, "displayDefaultSavedPaymentIcon", true),
     hideConfirmButton: getBool(configObj, "hideConfirmButton", false),
+    hideConfirmPayment: getBool(configObj, "hideConfirmPayment", false),
     enablePartialLoading: getBool(configObj, "enablePartialLoading", false),
     // customer: switch customerDict {
     // | Some(obj) =>

@@ -19,8 +19,12 @@ let make = (~confirmButtonData) => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
   let {sheetType} = React.useContext(DynamicFieldsContext.dynamicFieldsContext)
 
+  let hideConfirmPayment =
+    nativeProp.configuration.hideConfirmPayment || nativeProp.sdkState === WidgetPaymentSheet
+
   <UIUtils.RenderIf
-    condition={!nativeProp.configuration.hideConfirmButton && (
+    condition={!nativeProp.configuration.hideConfirmButton &&
+    !hideConfirmPayment && (
       sheetType === DynamicFieldsSheet ||
         (nativeProp.sdkState !== ButtonSheet && nativeProp.sdkState !== WidgetButtonSheet)
     )}>
