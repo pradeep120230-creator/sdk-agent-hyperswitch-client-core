@@ -121,4 +121,4 @@ next-env.d.ts
 *.detox.jsonl
 
 #mockData
-mockData.js
+#mockData.js
