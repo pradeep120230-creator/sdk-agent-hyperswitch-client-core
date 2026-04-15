@@ -43,6 +43,34 @@ let make = (
 
   let (savedCardCvv, setSavedCardCvv) = React.useState(_ => None)
 
+  let installmentPlans = AccountPaymentMethodType.filterInstallmentPlansByPaymentMethod(
+    accountPaymentMethodData->Option.flatMap(d => d.installment_options),
+    "card",
+  )
+  let hasInstallmentPlans = installmentPlans->Array.length > 0
+  let installmentCurrency =
+    accountPaymentMethodData->Option.map(d => d.currency)->Option.getOr("")
+  let (showInstallments, setShowInstallments) = React.useState(_ => false)
+  let (selectedInstallmentPlan, setSelectedInstallmentPlan): (
+    option<AccountPaymentMethodType.installmentPlan>,
+    (option<AccountPaymentMethodType.installmentPlan> => option<AccountPaymentMethodType.installmentPlan>) => unit,
+  ) = React.useState(_ => None)
+  let (installmentsError, setInstallmentsError) = React.useState(_ => None)
+
+  let isInstallmentValid =
+    !hasInstallmentPlans || !showInstallments || selectedInstallmentPlan->Option.isSome
+
+  let installmentDataForBody = if hasInstallmentPlans && showInstallments {
+    selectedInstallmentPlan->Option.map((
+      plan: AccountPaymentMethodType.installmentPlan,
+    ): PaymentConfirmTypes.installment_data => {
+      number_of_installments: plan.number_of_installments,
+      billing_frequency: plan.billing_frequency,
+    })
+  } else {
+    None
+  }
+
   let (selectedToken, setSelectedToken) = React.useState(_ => customerPaymentMethods->Array.get(0))
   let setSelectedToken = React.useCallback1(token => {
     setSelectedToken(_ => token)
@@ -98,6 +126,7 @@ let make = (
       ~billing=token.billing,
       ~screen_height=viewPortContants.screenHeight,
       ~screen_width=viewPortContants.screenWidth,
+      ~installment_data=?installmentDataForBody,
     )
 
     redirectHook(
@@ -405,22 +434,29 @@ let make = (
     | (Some(token), true) =>
       switch token.payment_method {
       | CARD =>
-        token.requires_cvv &&
-        (savedCardCvv->Option.isNone ||
-          !Validation.cvcNumberInRange(
-            savedCardCvv->Option.getOr(""),
-            token.card
-            ->Option.map(card => card.card_network)
-            ->Option.getOr(""),
-          ))
-          ? {
-              if savedCardCvv->Option.isNone {
-                setSavedCardCvv(_ => Some(""))
-              }
-              setLoading(FillingDetails)
-              notifyValidationFailure()
-            }
-          : processRequestSaved(token)
+        if !isInstallmentValid {
+          setInstallmentsError(_ => Some(localeObj.installmentSelectPlanError))
+          setLoading(FillingDetails)
+          notifyValidationFailure()
+        } else if (
+          token.requires_cvv &&
+          (savedCardCvv->Option.isNone ||
+            !Validation.cvcNumberInRange(
+              savedCardCvv->Option.getOr(""),
+              token.card
+              ->Option.map(card => card.card_network)
+              ->Option.getOr(""),
+            ))
+        ) {
+          if savedCardCvv->Option.isNone {
+            setSavedCardCvv(_ => Some(""))
+          }
+          setLoading(FillingDetails)
+          notifyValidationFailure()
+        } else {
+          setInstallmentsError(_ => None)
+          processRequestSaved(token)
+        }
       | WALLET =>
         switch token.payment_method_type_wallet {
         | APPLE_PAY =>
@@ -608,6 +644,8 @@ let make = (
     savedCardCvv,
     errorText,
     isSaveCardCheckboxSelected,
+    showInstallments,
+    selectedInstallmentPlan,
   ))
 
   <ErrorBoundary level={FallBackScreen.Screen} rootTag=nativeProp.rootTag>
@@ -636,6 +674,22 @@ let make = (
         ?maxVisibleItems
       />
     </View>
+    {hasInstallmentPlans &&
+    selectedToken
+    ->Option.map(t => t.payment_method === CARD)
+    ->Option.getOr(false)
+      ? <View style={s({paddingHorizontal: 16.->dp})}>
+          <InstallmentOptions
+            installmentPlans
+            currency=installmentCurrency
+            selectedPlan=selectedInstallmentPlan
+            setSelectedPlan=setSelectedInstallmentPlan
+            showInstallments
+            setShowInstallments
+            errorText=installmentsError
+          />
+        </View>
+      : React.null}
     {showDisclaimer && savedCardCvv->Option.isSome
       ? <View style={s({paddingHorizontal: 2.->dp})}>
           <Space />

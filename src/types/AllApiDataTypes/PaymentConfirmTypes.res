@@ -21,6 +21,11 @@ type customer_acceptance = {
 
 type mandate_data = {customer_acceptance: customer_acceptance}
 
+type installment_data = {
+  number_of_installments: int,
+  billing_frequency: string,
+}
+
 type redirectType = {
   client_secret?: string,
   return_url?: string,
@@ -35,6 +40,7 @@ type redirectType = {
   payment_type?: string,
   customer_acceptance?: customer_acceptance,
   card_cvc?: string,
+  installment_data?: installment_data,
 }
 
 type pollConfig = {

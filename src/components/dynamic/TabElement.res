@@ -5,6 +5,9 @@ let make = (
   ~processRequest,
   ~checkEligibility: option<string> => unit,
   ~setConfirmButtonData,
+  ~installmentPlans: array<AccountPaymentMethodType.installmentPlan>=[],
+  ~currency: string="",
+  ~installmentDataRef: React.ref<option<PaymentConfirmTypes.installment_data>>=React.useRef(None),
 ) => {
   let {
     formDataRef,
@@ -36,7 +39,38 @@ let make = (
     setFormMethods(_ => formSubmit)
   }, [setFormMethods])
 
+  let localeObject = GetLocale.useGetLocalObj()
   let notifyValidationFailure = UseWidgetActions.useNotifyValidationFailure()
+
+  let hasInstallmentPlans = installmentPlans->Array.length > 0
+  let (showInstallments, setShowInstallments) = React.useState(_ => false)
+  let (selectedInstallmentPlan, setSelectedInstallmentPlan): (
+    option<AccountPaymentMethodType.installmentPlan>,
+    (option<AccountPaymentMethodType.installmentPlan> => option<AccountPaymentMethodType.installmentPlan>) => unit,
+  ) = React.useState(_ => None)
+  let (installmentsError, setInstallmentsError) = React.useState(_ => None)
+
+  React.useEffect0(() => {
+    Some(() => {
+      setShowInstallments(_ => false)
+      setSelectedInstallmentPlan(_ => None)
+      setInstallmentsError(_ => None)
+    })
+  })
+
+  let isInstallmentValid =
+    !hasInstallmentPlans || !showInstallments || selectedInstallmentPlan->Option.isSome
+
+  let installmentDataForBody = if hasInstallmentPlans && showInstallments {
+    selectedInstallmentPlan->Option.map((
+      plan: AccountPaymentMethodType.installmentPlan,
+    ): PaymentConfirmTypes.installment_data => {
+      number_of_installments: plan.number_of_installments,
+      billing_frequency: plan.billing_frequency,
+    })
+  } else {
+    None
+  }
 
   let (
     requiredFields,
@@ -50,11 +84,15 @@ let make = (
   }, (paymentMethodData.payment_method_type, getRequiredFieldsForTabs, country, isScreenFocus))
 
   let handlePress = _ => {
-    // Only gate on eligibility for card payments; non-card methods skip the check
     let isEligibilityBlocked = isCardPayment && eligibilityStatus !== DynamicFieldsContext.Allowed
     if isEligibilityBlocked {
       ()
+    } else if !isInstallmentValid {
+      setInstallmentsError(_ => Some(localeObject.installmentSelectPlanError))
+      notifyValidationFailure()
     } else if isNicknameValid && (isFormValid || requiredFields->Array.length === 0) {
+      setInstallmentsError(_ => None)
+      installmentDataRef.current = installmentDataForBody
       processRequest(
         CommonUtils.mergeDict(initialValues, formData),
         None,
@@ -105,17 +143,30 @@ let make = (
     isNicknameValid,
   ))
 
-  <DynamicFields
-    fields=requiredFields
-    initialValues
-    setFormData
-    setIsFormValid
-    setIsPristine=?Some(setIsPristine)
-    setFormMethods
-    isCardPayment
-    enabledCardSchemes
-    accessible
-    isFocused=isScreenFocus
-    checkEligibility
-  />
+  <>
+    <DynamicFields
+      fields=requiredFields
+      initialValues
+      setFormData
+      setIsFormValid
+      setIsPristine=?Some(setIsPristine)
+      setFormMethods
+      isCardPayment
+      enabledCardSchemes
+      accessible
+      isFocused=isScreenFocus
+      checkEligibility
+    />
+    {hasInstallmentPlans && isCardPayment
+      ? <InstallmentOptions
+          installmentPlans
+          currency
+          selectedPlan=selectedInstallmentPlan
+          setSelectedPlan=setSelectedInstallmentPlan
+          showInstallments
+          setShowInstallments
+          errorText=installmentsError
+        />
+      : React.null}
+  </>
 }

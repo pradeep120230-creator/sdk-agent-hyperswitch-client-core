@@ -1,5 +1,22 @@
 open Utils
 
+type installmentAmountDetails = {
+  amount_per_installment: float,
+  total_amount: float,
+}
+
+type installmentPlan = {
+  interest_rate: float,
+  number_of_installments: int,
+  billing_frequency: string,
+  amount_details: installmentAmountDetails,
+}
+
+type installmentOption = {
+  payment_method: string,
+  available_plans: array<installmentPlan>,
+}
+
 type eligible_connectors = array<JSON.t>
 
 type card_networks = {
@@ -45,6 +62,7 @@ type accountPaymentMethods = {
   request_external_three_ds_authentication: bool,
   show_surcharge_breakup_screen: bool,
   sdk_next_action: option<string>,
+  installment_options: option<array<installmentOption>>,
 }
 
 let defaultAccountPaymentMethods = {
@@ -61,6 +79,7 @@ let defaultAccountPaymentMethods = {
   request_external_three_ds_authentication: false,
   show_surcharge_breakup_screen: false,
   sdk_next_action: None,
+  installment_options: None,
 }
 
 let parseCardNetworks = (dict: Js.Dict.t<JSON.t>) => {
@@ -187,6 +206,67 @@ let sortPaymentListArray = (plist: payment_methods) => {
   plist
 }
 
+let parseAmountDetails = (dict: Dict.t<JSON.t>): installmentAmountDetails => {
+  {
+    amount_per_installment: dict
+    ->Dict.get("amount_per_installment")
+    ->Option.flatMap(JSON.Decode.float)
+    ->Option.getOr(0.0),
+    total_amount: dict
+    ->Dict.get("total_amount")
+    ->Option.flatMap(JSON.Decode.float)
+    ->Option.getOr(0.0),
+  }
+}
+
+let parseInstallmentPlan = (json: JSON.t): installmentPlan => {
+  let dict = json->getDictFromJson
+  {
+    interest_rate: dict
+    ->Dict.get("interest_rate")
+    ->Option.flatMap(JSON.Decode.float)
+    ->Option.getOr(0.0),
+    number_of_installments: getInt(dict, "number_of_installments", 0),
+    billing_frequency: getString(dict, "billing_frequency", ""),
+    amount_details: getObj(dict, "amount_details", Dict.make())->parseAmountDetails,
+  }
+}
+
+let parseInstallmentOption = (json: JSON.t): installmentOption => {
+  let dict = json->getDictFromJson
+  {
+    payment_method: getString(dict, "payment_method", ""),
+    available_plans: getArray(dict, "available_plans")->Array.map(parseInstallmentPlan),
+  }
+}
+
+let getInstallmentOptions = (dict: Dict.t<JSON.t>): option<array<installmentOption>> => {
+  let intentDataDict = getOptionalObj(dict, "intent_data")
+  switch intentDataDict {
+  | Some(intentData) =>
+    switch getOptionalArrayFromDict(intentData, "installment_options") {
+    | Some(arr) =>
+      arr->Array.length > 0 ? Some(arr->Array.map(parseInstallmentOption)) : None
+    | None => None
+    }
+  | None => None
+  }
+}
+
+let filterInstallmentPlansByPaymentMethod = (
+  installmentOptions: option<array<installmentOption>>,
+  paymentMethod: string,
+): array<installmentPlan> => {
+  switch installmentOptions {
+  | Some(options) =>
+    options
+    ->Array.find(opt => opt.payment_method === paymentMethod)
+    ->Option.map(opt => opt.available_plans)
+    ->Option.getOr([])
+  | None => []
+  }
+}
+
 let jsonToAccountPaymentMethodType: JSON.t => accountPaymentMethods = res => {
   let accountPaymentMethodsDict = res->getDictFromJson
   {
@@ -231,6 +311,7 @@ let jsonToAccountPaymentMethodType: JSON.t => accountPaymentMethods = res => {
     sdk_next_action: accountPaymentMethodsDict
     ->getOptionalObj("sdk_next_action")
     ->Option.map(d => d->getString("next_action", "")),
+    installment_options: getInstallmentOptions(accountPaymentMethodsDict),
   }
 }
 
