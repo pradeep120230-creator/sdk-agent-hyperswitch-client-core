@@ -29,6 +29,7 @@ let generateCardConfirmBody = (
   ~email=?,
   ~screen_height=?,
   ~screen_width=?,
+  ~installment_data: option<PaymentConfirmTypes.installment_data>=?,
   (),
 ): PaymentConfirmTypes.redirectType => {
   let isMandate = payment_type !== NORMAL
@@ -62,6 +63,7 @@ let generateCardConfirmBody = (
           })
         : None
     ),
+    ?installment_data,
     browser_info: {
       user_agent: ?nativeProp.hyperParams.userAgent,
       accept_header: "text\/html,application\/xhtml+xml,application\/xml;q=0.9,image\/webp,image\/apng,*\/*;q=0.8",
@@ -106,6 +108,7 @@ let generateSavedCardConfirmBody = (
   ~screen_height=?,
   ~screen_width=?,
   ~billing=?,
+  ~installment_data: option<PaymentConfirmTypes.installment_data>=?,
 ): PaymentConfirmTypes.redirectType => {
   client_secret: ?switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
   | Some(_) => None
@@ -121,6 +124,7 @@ let generateSavedCardConfirmBody = (
     ->JSON.Encode.object
   ),
   payment_type: ?payment_type_str,
+  ?installment_data,
   browser_info: {
     user_agent: ?nativeProp.hyperParams.userAgent,
     accept_header: "text\/html,application\/xhtml+xml,application\/xml;q=0.9,image\/webp,image\/apng,*\/*;q=0.8",

@@ -75,6 +75,10 @@ let make = (
     }
   }
 
+  let installmentDataRef: React.ref<option<PaymentConfirmTypes.installment_data>> = React.useRef(
+    None,
+  )
+
   let processRequest = (
     tabDict: RescriptCore.Dict.t<RescriptCore.JSON.t>,
     walletDict: option<RescriptCore.Dict.t<RescriptCore.JSON.t>>,
@@ -183,6 +187,7 @@ let make = (
       ~email?,
       ~screen_height=viewPortContants.screenHeight,
       ~screen_width=viewPortContants.screenWidth,
+      ~installment_data=?installmentDataRef.current,
       (),
     )
 
@@ -199,10 +204,31 @@ let make = (
     )->ignore
   }
 
+  let installmentPlans = switch paymentMethodData.payment_method {
+  | CARD =>
+    AccountPaymentMethodType.filterInstallmentPlansByPaymentMethod(
+      accountPaymentMethodData->Option.flatMap(d => d.installment_options),
+      "card",
+    )
+  | _ => []
+  }
+
+  let currency = accountPaymentMethodData->Option.map(d => d.currency)->Option.getOr("")
+
   <ErrorBoundary level={FallBackScreen.Screen} rootTag=nativeProp.rootTag>
     {switch methodType {
     | ELEMENT => <ButtonElement paymentMethodData processRequest sessionObject />
-    | TAB => <TabElement paymentMethodData processRequest checkEligibility isScreenFocus setConfirmButtonData />
+    | TAB =>
+      <TabElement
+        paymentMethodData
+        processRequest
+        checkEligibility
+        isScreenFocus
+        setConfirmButtonData
+        installmentPlans
+        currency
+        installmentDataRef
+      />
     | _ => React.null
     }}
   </ErrorBoundary>
