@@ -39,6 +39,7 @@ let make = () => {
         } else {
           let pmlResponse = AccountPaymentMethodType.jsonToAccountPaymentMethodType(
             accountPaymentMethodData,
+            ~paymentMethodOrder=?nativeProp.configuration.paymentMethodOrder,
           )
           if pmlResponse.payment_methods->Array.length === 0 {
             errorOnApiCalls(ErrorUtils.errorWarning.noPMLData, ())
@@ -50,7 +51,10 @@ let make = () => {
 
       let handleCustomerPaymentMethodsResponse = customerPaymentMethodData => {
         setCustomerPaymentMethodData(_ => Some(
-          CustomerPaymentMethodType.jsonToCustomerPaymentMethodType(customerPaymentMethodData),
+          CustomerPaymentMethodType.jsonToCustomerPaymentMethodType(
+            customerPaymentMethodData,
+            ~paymentMethodOrder=?nativeProp.configuration.paymentMethodOrder,
+          ),
         ))
       }
 
