@@ -233,6 +233,7 @@ type configurationType = {
   enablePartialLoading: bool,
   disableBranding: bool,
   hideConfirmButton: bool,
+  paymentMethodOrder: option<array<string>>,
 }
 
 type sdkState =
@@ -846,6 +847,7 @@ let parseConfigurationDict = (configObj, from) => {
       cvv: getString(placeholderDict, "cvv", "CVC"),
     },
     disableBranding: getBool(configObj, "disableBranding", false),
+    paymentMethodOrder: getOptionalStrArray(configObj, "paymentMethodOrder"),
   }
   configuration
 }
