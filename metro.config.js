@@ -1,17 +1,16 @@
 const {getDefaultConfig} = require('@react-native/metro-config');
-// const exclusionList = require('metro-config/src/defaults/exclusionList');
-
-/**
- * Metro configuration
- * https://facebook.github.io/metro/docs/configuration
- *
- * @type {import('@react-native/metro-config').MetroConfig}
- */
+const path = require('path');
 
 const defaultConfig = getDefaultConfig(__dirname);
 
+const linkedKlarnaPath = path.resolve(
+  __dirname,
+  '../react-native-hyperswitch/packages/@juspay-tech/react-native-hyperswitch-klarna',
+);
+
 module.exports = {
   ...defaultConfig,
+  watchFolders: [linkedKlarnaPath],
   resolver: {
     ...defaultConfig.resolver,
     sourceExts: ['bs.js', ...defaultConfig.resolver.sourceExts],
