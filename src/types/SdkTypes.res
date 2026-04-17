@@ -2,7 +2,13 @@ open Utils
 
 type fontFamilyTypes = DefaultIOS | DefaultAndroid | CustomFont(string) | DefaultWeb
 
-type payment_method_type_wallet = GOOGLE_PAY | APPLE_PAY | PAYPAL | SAMSUNG_PAY | NONE
+type payment_method_type_wallet =
+  | GOOGLE_PAY
+  | APPLE_PAY
+  | PAYPAL
+  | SAMSUNG_PAY
+  | KLARNA_EXPRESS
+  | NONE
 
 let defaultCountry = "US"
 
@@ -12,6 +18,7 @@ let walletNameMapper = str => {
   | "apple_pay" => "Apple Pay"
   | "paypal" => "Paypal"
   | "samsung_pay" => "Samsung Pay"
+  | "klarna" => "Klarna"
   | _ => ""
   }
 }
@@ -22,6 +29,7 @@ let walletNameToTypeMapper = str => {
   | "Apple Pay" => APPLE_PAY
   | "Paypal" => PAYPAL
   | "Samsung Pay" => SAMSUNG_PAY
+  | "Klarna" => KLARNA_EXPRESS
   | _ => NONE
   }
 }
