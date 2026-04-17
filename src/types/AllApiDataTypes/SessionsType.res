@@ -61,6 +61,7 @@ let getWallet = str => {
   | "paypal" => PAYPAL
   | "google_pay" => GOOGLE_PAY
   | "samsung_pay" => SAMSUNG_PAY
+  | "klarna" => KLARNA_EXPRESS
   | _ => NONE
   }
 }

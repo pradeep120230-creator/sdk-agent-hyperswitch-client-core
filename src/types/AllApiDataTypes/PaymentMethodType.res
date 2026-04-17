@@ -38,6 +38,7 @@ let getWalletType = str =>
   | "apple_pay" => SdkTypes.APPLE_PAY
   | "paypal" => SdkTypes.PAYPAL
   | "samsung_pay" => SdkTypes.SAMSUNG_PAY
+  | "klarna" => SdkTypes.KLARNA_EXPRESS
   | _ => SdkTypes.NONE
   }
 

@@ -136,6 +136,12 @@ let useAccountPaymentMethodModifier = () => {
                 | Some(_) => Some()
                 | None => None
                 }
+          | KLARNA_EXPRESS =>
+            exp->Option.isSome &&
+            KlarnaExpressCheckoutModule.isAvailable &&
+            sessionObject.session_token !== ""
+              ? Some()
+              : None
           | NONE =>
             switch paymentMethodData.payment_method {
             | GIFT_CARD =>

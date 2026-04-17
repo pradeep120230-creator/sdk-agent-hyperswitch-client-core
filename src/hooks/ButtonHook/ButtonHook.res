@@ -123,6 +123,33 @@ let useProcessPayButtonResult = () => {
       } else {
         Failed(message)
       }
+    | KLARNA_EXPRESS =>
+      let approved =
+        var
+        ->Dict.get("approved")
+        ->Option.getOr(JSON.Encode.null)
+        ->JSON.Decode.bool
+        ->Option.getOr(false)
+      let authorizationToken =
+        var
+        ->Dict.get("authorizationToken")
+        ->Option.getOr(JSON.Encode.null)
+        ->JSON.Decode.string
+        ->Option.getOr("")
+      let errorMessage =
+        var
+        ->Dict.get("error_message")
+        ->Option.getOr(JSON.Encode.null)
+        ->JSON.Decode.string
+        ->Option.getOr("")
+      if approved && authorizationToken !== "" {
+        let paymentData = [("token", authorizationToken->JSON.Encode.string)]->Dict.fromArray
+        Success(paymentData, None, None)
+      } else if errorMessage !== "" {
+        Failed(errorMessage)
+      } else {
+        Cancelled
+      }
     | _ => Cancelled
     }
   }

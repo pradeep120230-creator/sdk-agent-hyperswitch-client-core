@@ -145,6 +145,21 @@ let make = (
     )
   }
 
+  let confirmKlarnaExpress = var => {
+    let status = handleWalletPayments(KLARNA_EXPRESS, var)
+
+    switch status {
+    | Success(walletData, billingAddress, shippingAddress) =>
+      processWalletData(walletData, ~billingAddress?, ~shippingAddress?)
+    | Cancelled | Simulated =>
+      setLoading(FillingDetails)
+      showAlert(~errorType="warning", ~message="Payment was Cancelled")
+    | Failed(error_message) =>
+      setLoading(FillingDetails)
+      showAlert(~errorType="error", ~message=error_message)
+    }
+  }
+
   let confirmApplePay = (var: dict<JSON.t>) => {
     logger(
       ~logType=DEBUG,
@@ -297,6 +312,7 @@ let make = (
         (),
       )
     // SamsungPayModule.presentSamsungPayPaymentSheet(confirmSamsungPay)
+    | KLARNA_EXPRESS => setLoading(FillingDetails)
     | _ => {
         setLoading(FillingDetails)
         processWalletData(Dict.make(), ~useIntentData=true)
@@ -353,6 +369,52 @@ let make = (
             buttonType=nativeProp.configuration.appearance.googlePay.buttonType
             buttonStyle=googlePayButtonColor
             borderRadius={buttonBorderRadius}
+          />,
+        )
+      | KLARNA_EXPRESS =>
+        Some(
+          <KlarnaExpressCheckoutButtonView
+            style={s({height: primaryButtonHeight->dp, width: 100.->pct})}
+            clientToken={sessionObject.session_token}
+            returnUrl=?{Utils.getCustomReturnAppUrl(~appId=nativeProp.hyperParams.appId)}
+            onAuthorized={event => {
+              let payload = event.nativeEvent
+              let dict =
+                [
+                  ("approved", payload.approved->JSON.Encode.bool),
+                  ("showForm", payload.showForm->JSON.Encode.bool),
+                  ("finalizeRequired", payload.finalizeRequired->JSON.Encode.bool),
+                  (
+                    "authorizationToken",
+                    payload.authorizationToken->Option.getOr("")->JSON.Encode.string,
+                  ),
+                  ("clientToken", payload.clientToken->Option.getOr("")->JSON.Encode.string),
+                  ("sessionId", payload.sessionId->Option.getOr("")->JSON.Encode.string),
+                  (
+                    "collectedShippingAddress",
+                    payload.collectedShippingAddress->Option.getOr("")->JSON.Encode.string,
+                  ),
+                  (
+                    "merchantReference1",
+                    payload.merchantReference1->Option.getOr("")->JSON.Encode.string,
+                  ),
+                  (
+                    "merchantReference2",
+                    payload.merchantReference2->Option.getOr("")->JSON.Encode.string,
+                  ),
+                ]->Dict.fromArray
+              confirmKlarnaExpress(dict)
+            }}
+            onError={event => {
+              let payload = event.nativeEvent
+              let dict =
+                [
+                  ("error_message", payload.message->JSON.Encode.string),
+                  ("errorName", payload.name->JSON.Encode.string),
+                  ("isFatal", payload.isFatal->JSON.Encode.bool),
+                ]->Dict.fromArray
+              confirmKlarnaExpress(dict)
+            }}
           />,
         )
       | PAYPAL => Some(<GenericButtonElement buttonName width=80. color=paypalButonColor />)
