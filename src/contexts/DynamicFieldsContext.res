@@ -172,6 +172,16 @@ let make = (~children) => {
       requiredFieldsFromPML,
     )
 
+    let missingRequiredFields = if nativeProp.configuration.alwaysShowBillingDetails {
+      let missingPaths = missingRequiredFields->Array.map(field => field.outputPath)
+      _requiredFields->Array.filter(field =>
+        missingPaths->Array.includes(field.outputPath) ||
+          field.outputPath->String.includes("billing.")
+      )
+    } else {
+      missingRequiredFields
+    }
+
     // Validate CountrySelect fields against their allowed options
     missingRequiredFields->Array.forEach(field => {
       switch field.fieldType {
@@ -339,6 +349,16 @@ let make = (~children) => {
       configParams,
       requiredFieldsFromSource,
     )
+
+    let missingRequiredFields = if nativeProp.configuration.alwaysShowBillingDetails {
+      let missingPaths = missingRequiredFields->Array.map(field => field.outputPath)
+      _requiredFields->Array.filter(field =>
+        missingPaths->Array.includes(field.outputPath) ||
+          field.outputPath->String.includes("billing.")
+      )
+    } else {
+      missingRequiredFields
+    }
 
     let isFieldsMissing = missingRequiredFields->Array.length > 0
 
