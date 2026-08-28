@@ -2,6 +2,11 @@ open Utils
 
 type layoutType = Tab | Accordion
 type paymentMethodsArrangement = ArrangementDefault | ArrangementGrid
+type cardBrandIcon =
+  | CardBrandIconStandard
+  | CardBrandIconHidden
+  | CardBrandIconAnimated
+  | CardBrandIconHideDefault
 type groupingBehavior = {
   displayInSeparateScreen: bool,
   groupByPaymentMethods: bool,
@@ -20,7 +25,31 @@ type layout = {
   spacedAccordionItems: bool,
   maxAccordionItems: int,
   savedMethodCustomization: savedMethodCustomization,
+  cardBrandIcon: cardBrandIcon,
 }
+
+let getCardBrandIconStyle = (str): cardBrandIcon =>
+  switch str {
+  | "hidden" => CardBrandIconHidden
+  | "animated" => CardBrandIconAnimated
+  | "hideDefault" => CardBrandIconHideDefault
+  | "" | "standard" => CardBrandIconStandard
+  | str =>
+    Console.warn(
+      `Unknown Value: '${str}' is an unknown/invalid value for appearance.layout.cardBrandIcon, please provide one of ["standard", "hidden", "animated", "hideDefault"]. This might cause issue in the future`,
+    )
+    CardBrandIconStandard
+  }
+
+/* Decides whether the card brand icon should be rendered at all.
+   Kept pure and outside the components so both render sites share one rule. */
+let getCardBrandIconVisibility = (setting: cardBrandIcon, ~cardBrand: string) =>
+  switch setting {
+  // Animated is reserved for future use; behaves like Standard for now
+  | CardBrandIconStandard | CardBrandIconAnimated => true
+  | CardBrandIconHidden => false
+  | CardBrandIconHideDefault => cardBrand !== ""
+  }
 
 let defaultLayout: layout = {
   layoutType: Tab,
@@ -33,6 +62,7 @@ let defaultLayout: layout = {
   savedMethodCustomization: {
     groupingBehavior: {displayInSeparateScreen: true, groupByPaymentMethods: false},
   },
+  cardBrandIcon: CardBrandIconStandard,
 }
 
 let parseLayout = (appearanceDict: Dict.t<JSON.t>) => {
@@ -82,6 +112,7 @@ let parseLayout = (appearanceDict: Dict.t<JSON.t>) => {
           | None => {displayInSeparateScreen: true, groupByPaymentMethods: false}
           },
         },
+        cardBrandIcon: getString(obj, "cardBrandIcon", "standard")->getCardBrandIconStyle,
       }
     }
   | None =>
@@ -100,6 +131,7 @@ let parseLayout = (appearanceDict: Dict.t<JSON.t>) => {
       savedMethodCustomization: {
         groupingBehavior: {displayInSeparateScreen: true, groupByPaymentMethods: false},
       },
+      cardBrandIcon: CardBrandIconStandard,
     }
   }
 }

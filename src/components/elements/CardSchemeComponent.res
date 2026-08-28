@@ -46,6 +46,11 @@ module CardSchemeSelectionPopoverElement = {
 @react.component
 let make = (~eligibleCardSchemes, ~showCardSchemeDropDown, ~cardBrand, ~setCardBrand) => {
   let logger = LoggerHook.useLoggerHook()
+  let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
+  let showCardBrandIcon = LayoutTypes.getCardBrandIconVisibility(
+    nativeProp.configuration.appearance.layout.cardBrandIcon,
+    ~cardBrand,
+  )
 
   let dropDownIconWidth = AnimatedValue.useAnimatedValue(0.)
   let fadeAnim = AnimatedValue.useAnimatedValue(1.)
@@ -117,8 +122,8 @@ let make = (~eligibleCardSchemes, ~showCardSchemeDropDown, ~cardBrand, ~setCardB
     })
   }
 
-  React.useLayoutEffect1(() => {
-    if cardBrand === "" {
+  React.useLayoutEffect2(() => {
+    if cardBrand === "" && showCardBrandIcon {
       startContinuousAnimation()
       Some(
         () => {
@@ -136,7 +141,7 @@ let make = (~eligibleCardSchemes, ~showCardSchemeDropDown, ~cardBrand, ~setCardB
       fadeAnim->Animated.Value.setValue(1.)
       None
     }
-  }, [cardBrand])
+  }, (cardBrand, showCardBrandIcon))
 
   React.useEffect(() => {
     Animated.timing(
@@ -181,19 +186,21 @@ let make = (~eligibleCardSchemes, ~showCardSchemeDropDown, ~cardBrand, ~setCardB
           justifyContent: #center,
           alignItems: #center,
         })}>
-        <Animated.View
-          style={s({
-            opacity: fadeAnim->Animated.StyleProp.float,
-            transform: [scale(~scale=scaleAnim->Animated.StyleProp.float)],
-          })}>
-          <Icon
-            name={cardBrand === "" ? cardBrandForShow : cardBrand}
-            height=32.
-            width=32.
-            fill="black"
-            fallbackIcon="waitcard"
-          />
-        </Animated.View>
+        <UIUtils.RenderIf condition={showCardBrandIcon}>
+          <Animated.View
+            style={s({
+              opacity: fadeAnim->Animated.StyleProp.float,
+              transform: [scale(~scale=scaleAnim->Animated.StyleProp.float)],
+            })}>
+            <Icon
+              name={cardBrand === "" ? cardBrandForShow : cardBrand}
+              height=32.
+              width=32.
+              fill="black"
+              fallbackIcon="waitcard"
+            />
+          </Animated.View>
+        </UIUtils.RenderIf>
         <Animated.View style={s({width: dropDownIconWidth->Animated.StyleProp.size})}>
           <UIUtils.RenderIf condition={showCardSchemeDropDown}>
             <View style={s({marginLeft: 8.->dp})}>
