@@ -427,6 +427,7 @@ let defaultAppearance: appearance = {
     savedMethodCustomization: {
       groupingBehavior: {displayInSeparateScreen: true, groupByPaymentMethods: false},
     },
+    cardBrandIcon: CardBrandIconStandard,
   },
 }
 

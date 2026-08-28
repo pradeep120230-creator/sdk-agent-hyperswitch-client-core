@@ -42,6 +42,10 @@ let make = (
   let cvvRef = React.useRef(Nullable.null)
   let zipRef = React.useRef(Nullable.null)
   let cardBrand = Validation.getCardBrand(cardNumber)
+  let showCardBrandIcon = LayoutTypes.getCardBrandIconVisibility(
+    nativeProp.configuration.appearance.layout.cardBrandIcon,
+    ~cardBrand,
+  )
   let (loading, _) = React.useContext(LoadingContext.loadingContext)
 
   let animateFlex = (~flexval, ~value) => {
@@ -78,13 +82,20 @@ let make = (
         ])}>
         {String.length(cardNumber) !== 0
           ? String.length(cvv) == 0
-              ? <Icon
-                  name={cardBrand === "" ? "waitcard" : cardBrand} height=35. width=35. fill="black"
-                />
+              ? <UIUtils.RenderIf condition={showCardBrandIcon}>
+                  <Icon
+                    name={cardBrand === "" ? "waitcard" : cardBrand}
+                    height=35.
+                    width=35.
+                    fill="black"
+                  />
+                </UIUtils.RenderIf>
               : Validation.checkCardCVC(cvv, cardBrand)
               ? <Icon name="cvvfilled" height=35. width=35. fill="black" />
               : <Icon name="cvvempty" height=35. width=35. fill="black" />
-          : <Icon name={"waitcard"} height=35. width=35. fill="black" />}
+          : <UIUtils.RenderIf condition={showCardBrandIcon}>
+              <Icon name={"waitcard"} height=35. width=35. fill="black" />
+            </UIUtils.RenderIf>}
         // <Icon name={isCardNumberValid ? "cvvimage" : "error-card"} height=45. width=45. />
         <Animated.View style={s({flex: {cardNumInputFlex->Animated.StyleProp.float}})}>
           <CustomInput
