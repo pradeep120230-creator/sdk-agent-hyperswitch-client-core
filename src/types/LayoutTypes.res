@@ -1,14 +1,22 @@
 open Utils
 
-type layoutType = Tab | Accordion
+type visibility = Hidden | Shown
+type cardBrandVisibility = Hidden | Animated | Standard | HideGeneric
+type layoutType = Tabs | Accordion
 type paymentMethodsArrangement = ArrangementDefault | ArrangementGrid
 type groupingBehavior = {
   displayInSeparateScreen: bool,
+  displayInSeparateSection: bool,
   groupByPaymentMethods: bool,
 }
 
 type savedMethodCustomization = {
+  hideCardExpiry: bool,
+  hideCVCError: bool,
+  cvcIcon: visibility,
   groupingBehavior: groupingBehavior,
+  defaultCollapsed: bool,
+  hiddenPaymentMethods: array<string>,
 }
 
 type layout = {
@@ -19,35 +27,54 @@ type layout = {
   radios: bool,
   spacedAccordionItems: bool,
   maxAccordionItems: int,
+  cvcIcon: visibility,
+  cardBrandIcon: cardBrandVisibility,
+  showCheckedIconForSelection: bool,
+  separatorText: option<string>,
   savedMethodCustomization: savedMethodCustomization,
 }
 
 let defaultLayout: layout = {
-  layoutType: Tab,
+  layoutType: Tabs,
   showOneClickWalletsOnTop: true,
   paymentMethodsArrangementForTabs: ArrangementDefault,
-  defaultCollapsed: false,
+  defaultCollapsed: true,
   radios: false,
-  spacedAccordionItems: false,
+  spacedAccordionItems: true,
   maxAccordionItems: 4,
+  cvcIcon: Shown,
+  cardBrandIcon: Standard,
+  showCheckedIconForSelection: false,
+  separatorText: None,
   savedMethodCustomization: {
-    groupingBehavior: {displayInSeparateScreen: true, groupByPaymentMethods: false},
+    hideCardExpiry: false,
+    hideCVCError: false,
+    cvcIcon: Shown,
+    defaultCollapsed: false,
+    groupingBehavior: {
+      displayInSeparateScreen: true,
+      displayInSeparateSection: false,
+      groupByPaymentMethods: false,
+    },
+    hiddenPaymentMethods: [],
   },
 }
 
-let parseLayout = (appearanceDict: Dict.t<JSON.t>) => {
-  let layoutRaw = appearanceDict->Dict.get("layout")
+let parseLayout = (configObj: Dict.t<JSON.t>) => {
+  let layoutRaw = configObj->Dict.get("paymentMethodLayout")
   let layoutObj = layoutRaw->Option.flatMap(JSON.Decode.object)
 
   switch layoutObj {
   | Some(obj) => {
       let savedMethodCustomizationDict =
-        obj->Dict.get("savedMethodCustomization")->Option.flatMap(JSON.Decode.object)
+        obj
+        ->Dict.get("savedMethodCustomization")
+        ->Option.flatMap(JSON.Decode.object)
+        ->Option.getOr(Dict.make())
       {
         layoutType: switch getString(obj, "type", "tabs") {
-        | "tabs" => Tab
         | "accordion" | "spacedAccordion" => Accordion
-        | _ => Tab
+        | _ => Tabs
         },
         showOneClickWalletsOnTop: getBool(obj, "showOneClickWalletsOnTop", true),
         paymentMethodsArrangementForTabs: switch getString(
@@ -59,46 +86,64 @@ let parseLayout = (appearanceDict: Dict.t<JSON.t>) => {
         | _ => ArrangementDefault
         },
         defaultCollapsed: getBool(obj, "defaultCollapsed", false),
-        radios: getBool(obj, "radios", false),
+        radios: getBool(obj, "radios", true),
         spacedAccordionItems: getBool(obj, "spacedAccordionItems", false),
         maxAccordionItems: getInt(obj, "maxAccordionItems", 4),
+        cvcIcon: switch getString(obj, "cvcIcon", "shown") {
+        | "hidden" => Hidden
+        | _ => Shown
+        },
+        cardBrandIcon: switch getString(obj, "cardBrandIcon", "animated") {
+        | "hidden" => Hidden
+        | "standard" => Standard
+        | "hideGeneric" => HideGeneric
+        | _ => Animated
+        },
+        showCheckedIconForSelection: getBool(obj, "showCheckedIconForSelection", false),
+        separatorText: getOptionString(obj, "separatorText"),
         savedMethodCustomization: {
-          groupingBehavior: switch savedMethodCustomizationDict {
-          | Some(smDict) =>
-            switch smDict->Dict.get("groupingBehavior")->Option.flatMap(JSON.Decode.object) {
-            | Some(gbObj) => {
-                displayInSeparateScreen: getBool(gbObj, "displayInSeparateScreen", true),
-                groupByPaymentMethods: getBool(gbObj, "groupByPaymentMethods", false),
-              }
-            | None =>
-              switch getString(smDict, "groupingBehavior", "default") {
-              | "groupByPaymentMethods" => {
-                  displayInSeparateScreen: false,
-                  groupByPaymentMethods: true,
-                }
-              | _ => {displayInSeparateScreen: true, groupByPaymentMethods: false}
-              }
-            }
-          | None => {displayInSeparateScreen: true, groupByPaymentMethods: false}
+          hideCardExpiry: getBool(savedMethodCustomizationDict, "hideCardExpiry", false),
+          hideCVCError: getBool(savedMethodCustomizationDict, "hideCVCError", false),
+          cvcIcon: switch getString(
+            savedMethodCustomizationDict,
+            "cvcIcon",
+            getString(obj, "cvcIcon", "shown"),
+          ) {
+          | "hidden" => Hidden
+          | _ => Shown
           },
+          groupingBehavior: switch savedMethodCustomizationDict
+          ->Dict.get("groupingBehavior")
+          ->Option.flatMap(JSON.Decode.object) {
+          | Some(gbObj) => {
+              displayInSeparateScreen: getBool(gbObj, "displayInSeparateScreen", true),
+              displayInSeparateSection: getBool(gbObj, "displayInSeparateSection", false),
+              groupByPaymentMethods: getBool(gbObj, "groupByPaymentMethods", false),
+            }
+          | None =>
+            switch getString(savedMethodCustomizationDict, "groupingBehavior", "default") {
+            | "groupByPaymentMethods" => {
+                displayInSeparateScreen: false,
+                displayInSeparateSection: false,
+                groupByPaymentMethods: true,
+              }
+            | _ => defaultLayout.savedMethodCustomization.groupingBehavior
+            }
+          },
+          defaultCollapsed: getBool(savedMethodCustomizationDict, "defaultCollapsed", false),
+          hiddenPaymentMethods: savedMethodCustomizationDict
+          ->Dict.get("hiddenPaymentMethods")
+          ->Option.flatMap(JSON.Decode.array)
+          ->Option.getOr([])
+          ->Array.filterMap(JSON.Decode.string),
         },
       }
     }
-  | None =>
-    {
-      layoutType: switch getString(appearanceDict, "layout", "") {
-      | "tabs" => Tab
-      | "accordion" | "spacedAccordion" => Accordion
-      | _ => Tab
-      },
-      showOneClickWalletsOnTop: true,
-      paymentMethodsArrangementForTabs: ArrangementDefault,
-      defaultCollapsed: false,
-      radios: false,
-      spacedAccordionItems: false,
-      maxAccordionItems: 4,
-      savedMethodCustomization: {
-        groupingBehavior: {displayInSeparateScreen: true, groupByPaymentMethods: false},
+  | None => {
+      ...defaultLayout,
+      layoutType: switch getString(configObj, "layout", "") {
+      | "accordion" => Accordion
+      | _ => Tabs
       },
     }
   }

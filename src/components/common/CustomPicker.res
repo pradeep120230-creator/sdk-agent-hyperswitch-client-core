@@ -32,13 +32,7 @@ let make = (
   }, [isCountryStateFields])
   let pickerRef = React.useRef(Nullable.null)
   let searchInputRef = React.useRef(Nullable.null)
-  let {
-    bgColor,
-    component,
-    iconColor,
-    borderRadius,
-    borderWidth,
-  } = ThemebasedStyle.useThemeBasedStyle()
+  let {bgColor, component, iconColor, borderWidth} = ThemebasedStyle.useThemeBasedStyle()
   let (nativeProps, _) = React.useContext(NativePropContext.nativePropContext)
   let (viewPortContants, _) = React.useContext(ViewportContext.viewPortContext)
   let {bgTransparentColor} = ThemebasedStyle.useThemeBasedStyle()
@@ -63,10 +57,6 @@ let make = (
         borderLeftWidth=borderWidth
         borderRightWidth=borderWidth
         borderBottomWidth=borderWidth
-        borderTopLeftRadius=borderRadius
-        borderTopRightRadius=borderRadius
-        borderBottomLeftRadius=borderRadius
-        borderBottomRightRadius=borderRadius
         placeholder=placeholderText
         editable=false
         textColor=component.color
@@ -141,14 +131,6 @@ let make = (
             }}
             keyboardType=#default
             textColor=component.color
-            borderBottomLeftRadius=borderRadius
-            borderBottomRightRadius=borderRadius
-            borderTopLeftRadius=borderRadius
-            borderTopRightRadius=borderRadius
-            borderTopWidth=borderWidth
-            borderBottomWidth=borderWidth
-            borderLeftWidth=borderWidth
-            borderRightWidth=borderWidth
             ?accessible
           />
           <Space />

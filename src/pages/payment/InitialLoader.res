@@ -3,17 +3,15 @@ open Style
 
 @react.component
 let make = () => {
-  let {
-    borderWidth,
-    borderRadius,
-    component,
-    shadowIntensity,
-    shadowColor,
-  } = ThemebasedStyle.useThemeBasedStyle()
-  let getShadowStyle = ShadowHook.useGetShadowStyle(~shadowIntensity, ~shadowColor, ())
+  let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
+  let {borderWidth, borderRadius, component, shadowConfig} = ThemebasedStyle.useThemeBasedStyle()
+  let getShadowStyle = ShadowHook.useGetShadowStyle(~shadowConfig, ())
 
   <>
-    <Space />
+    <UIUtils.RenderIf
+      condition=nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.groupingBehavior.displayInSeparateScreen>
+      <Space />
+    </UIUtils.RenderIf>
     <View
       style={array([
         getShadowStyle,
@@ -65,9 +63,12 @@ let make = () => {
       })
       ->React.array}
     </View>
-    <Space height=20. />
-    <Space />
-    <CustomLoader width="200" height="20" />
+    <Space height=2. />
+    <UIUtils.RenderIf
+      condition=nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.groupingBehavior.displayInSeparateScreen>
+      <Space />
+      <CustomLoader width="200" height="20" />
+    </UIUtils.RenderIf>
     <Space height=20. />
   </>
 }

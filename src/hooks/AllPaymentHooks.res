@@ -31,68 +31,60 @@ let useRetrieveHook = () => {
   let baseUrl = GlobalHooks.useGetBaseUrl()()
 
   (type_, clientSecret, publishableKey, ~isForceSync=false) => {
-    switch (WebKit.platform, type_) {
-    | (#next, Types.List) => Promise.resolve(Next.listRes)
-    | (_, type_) =>
+    switch type_ {
+    | Types.Payment =>
       let headers = Utils.getHeader(
         ~apiKey=publishableKey,
-        ~appId=nativeProp.hyperParams.appId,
-        ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+        ~appId=nativeProp.sdkParams.appId,
+        ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
         (),
       )
-      let (uri, eventName: LoggerTypes.eventName) = switch type_ {
-      | Payment => (
-          switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
-          | Some(_) =>
-            `${baseUrl}/payments/${nativeProp.paymentMethodId}?force_sync=${isForceSync
-                ? "true"
-                : "false"}`
-          | None =>
-            `${baseUrl}/payments/${nativeProp.paymentMethodId}?force_sync=${isForceSync
-                ? "true"
-                : "false"}&client_secret=${clientSecret}`
-          },
-          RETRIEVE_CALL,
-        )
-      | List => (
-          switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
-          | Some(_) => `${baseUrl}/account/payment_methods`
-          | None => `${baseUrl}/account/payment_methods?client_secret=${clientSecret}`
-          },
-          PAYMENT_METHODS_CALL,
-        )
+      let uri = switch nativeProp.paymentSessionConfig.sdkAuthorization->Utils.getNonEmptyOption {
+      | Some(_) =>
+        `${baseUrl}/payments/${nativeProp.paymentSessionConfig.paymentId}?force_sync=${isForceSync
+            ? "true"
+            : "false"}`
+      | None =>
+        `${baseUrl}/payments/${nativeProp.paymentSessionConfig.paymentId}?force_sync=${isForceSync
+            ? "true"
+            : "false"}&client_secret=${clientSecret}`
       }
 
-      APIUtils.fetchApiWrapper(~uri, ~method=#GET, ~headers, ~eventName, ~apiLogWrapper)
+      APIUtils.fetchApiWrapper(
+        ~uri,
+        ~method=#GET,
+        ~headers,
+        ~eventName=RETRIEVE_CALL,
+        ~apiLogWrapper,
+      )
     }
   }
 }
 
-let usePaymentMethodHook = (~customerLevel=false) => {
+let useFetchClientData = () => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
   let apiLogWrapper = LoggerHook.useApiLogWrapper()
   let baseUrl = GlobalHooks.useGetBaseUrl()()
   () => {
     switch WebKit.platform {
-    | #next => Promise.resolve(Next.clistRes)
+    | #next => Promise.resolve(Next.clientResponse)
     | _ =>
-      let uri = switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
-      | Some(_) => `${baseUrl}/${customerLevel ? "customers" : "account"}/payment_methods`
+      let paymentId = nativeProp.paymentSessionConfig.paymentId
+      let uri = switch nativeProp.paymentSessionConfig.sdkAuthorization->Utils.getNonEmptyOption {
+      | Some(_) => `${baseUrl}/payments/${paymentId}/client`
       | None =>
-        `${baseUrl}/${customerLevel
-            ? "customers"
-            : "account"}/payment_methods?client_secret=${nativeProp.clientSecret}`
+        `${baseUrl}/payments/${paymentId}/client?client_secret=${nativeProp.paymentSessionConfig.clientSecret}`
       }
       APIUtils.fetchApiWrapper(
         ~uri,
         ~method=#GET,
         ~headers=Utils.getHeader(
-          ~apiKey=nativeProp.publishableKey,
-          ~appId=nativeProp.hyperParams.appId,
-          ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+          ~apiKey=nativeProp.hyperswitchConfig.publishableKey,
+          ~appId=nativeProp.sdkParams.appId,
+          ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
           (),
         ),
-        ~eventName={customerLevel ? CUSTOMER_PAYMENT_METHODS_CALL : PAYMENT_METHODS_CALL},
+        ~eventName=LoggerTypes.CLIENT_LIST_CALL,
         ~apiLogWrapper,
       )
     }
@@ -110,16 +102,16 @@ let useSessionTokenHook = () => {
       APIUtils.fetchApiWrapper(
         ~uri=`${baseUrl}/payments/session_tokens`,
         ~body=PaymentUtils.generateSessionsTokenBody(
-          ~clientSecret=nativeProp.clientSecret,
-          ~paymentId=nativeProp.paymentMethodId,
-          ~sdkAuthorization=?nativeProp.sdkAuthorization,
+          ~clientSecret=nativeProp.paymentSessionConfig.clientSecret,
+          ~paymentId=nativeProp.paymentSessionConfig.paymentId,
+          ~sdkAuthorization=?nativeProp.paymentSessionConfig.sdkAuthorization,
           ~wallet,
         ),
         ~method=#POST,
         ~headers=Utils.getHeader(
-          ~apiKey=nativeProp.publishableKey,
-          ~appId=nativeProp.hyperParams.appId,
-          ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+          ~apiKey=nativeProp.hyperswitchConfig.publishableKey,
+          ~appId=nativeProp.sdkParams.appId,
+          ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
           (),
         ),
         ~eventName=LoggerTypes.SESSIONS_CALL,
@@ -129,9 +121,72 @@ let useSessionTokenHook = () => {
   }
 }
 
+//add a hook for /sdk-config
+let useSdkConfigHook = () => {
+  let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
+  let apiLogWrapper = LoggerHook.useApiLogWrapper()
+  let baseUrl = GlobalHooks.useGetBaseUrl()()
+  () => {
+    let uri = `${baseUrl}/v1/sdk/configs/${WebKit.platformGroup}/sdk_config.json?client_secret=${nativeProp.paymentSessionConfig.clientSecret}`
+
+    APIUtils.fetchApiWrapper(
+      ~uri,
+      ~method=#GET,
+      ~headers=Utils.getHeader(
+        ~apiKey=nativeProp.hyperswitchConfig.publishableKey,
+        ~appId=nativeProp.sdkParams.appId,
+        ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
+        (),
+      ),
+      ~eventName=LoggerTypes.CONFIG_CALL,
+      ~apiLogWrapper,
+    )
+  }
+}
+
+let usePostSessionTokensHook = () => {
+  let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
+  let (clientData, _, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
+  let baseUrl = GlobalHooks.useGetBaseUrl()()
+  let apiLogWrapper = LoggerHook.useApiLogWrapper()
+  (
+    ~paymentMethodData: ClientResponseType.paymentMethodEnabled,
+    ~sessionObject: SessionsType.sessions,
+    (),
+  ) => {
+    let payment_type_str =
+      clientData
+      ->Option.map(a => a.intent_data.payment_type_str)
+      ->Option.getOr(None)
+
+    let body =
+      PaymentUtils.generatePostSessionTokensBody(
+        ~nativeProp,
+        ~paymentMethodData,
+        ~sessionObject,
+        ~payment_type_str?,
+        (),
+      )->JSON.stringify
+
+    APIUtils.fetchApiWrapper(
+      ~uri=`${baseUrl}/payments/${nativeProp.paymentSessionConfig.paymentId}/post_session_tokens`,
+      ~body,
+      ~method=#POST,
+      ~headers=Utils.getHeader(
+        ~apiKey=nativeProp.hyperswitchConfig.publishableKey,
+        ~appId=nativeProp.sdkParams.appId,
+        ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
+        (),
+      ),
+      ~eventName=POST_SESSION_TOKENS_CALL,
+      ~apiLogWrapper,
+    )
+  }
+}
+
 let useBrowserHook = () => {
   let retrievePayment = useRetrieveHook()
-  let (accountPaymentMethodData, _, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
+  let (clientData, _, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
   let intervalId = React.useRef(Nullable.null)
   let redirectionSuccessHandler = BrowserRedirectionHooks.useBrowserRedirectionSuccessHook()
@@ -149,10 +204,8 @@ let useBrowserHook = () => {
     let res = await BrowserHook.openUrl(
       openUrl,
       Utils.getReturnUrl(
-        ~appId=nativeProp.hyperParams.appId,
-        ~appURL=accountPaymentMethodData->Option.map(accountPaymentMethods =>
-          accountPaymentMethods.redirect_url
-        ),
+        ~appId=nativeProp.sdkParams.appId,
+        ~appURL=clientData->Option.map(data => data.intent_data.return_url),
       ),
       intervalId,
       ~useEphemeralWebSession,
@@ -187,6 +240,8 @@ let useRedirectHook = () => {
   let (_, setLoading) = React.useContext(LoadingContext.loadingContext)
   let browserRedirectionHandler = useBrowserHook()
   let retrievePayment = useRetrieveHook()
+  let redirectionSuccessHandler = BrowserRedirectionHooks.useBrowserRedirectionSuccessHook()
+  let redirectionFailureHandler = BrowserRedirectionHooks.useBrowserRedirectionFailedHook()
   let logger = LoggerHook.useLoggerHook()
   let baseUrl = GlobalHooks.useGetBaseUrl()()
   let handleNativeThreeDS = NetceteraThreeDsHooks.useExternalThreeDs()
@@ -199,17 +254,17 @@ let useRedirectHook = () => {
     ~clientSecret: string,
     ~errorCallback: (~errorMessage: error, ~closeSDK: bool, unit) => unit,
     ~paymentMethod,
-    ~paymentExperience: option<array<AccountPaymentMethodType.payment_experience>>=?,
+    ~paymentExperience: option<array<ClientResponseType.paymentExperience>>=?,
     ~responseCallback: (~paymentStatus: LoadingContext.sdkPaymentState, ~status: error) => unit,
     ~isCardPayment=false,
     (),
   ) => {
-    let uriPram = nativeProp.paymentMethodId
+    let uriPram = nativeProp.paymentSessionConfig.paymentId
     let uri = `${baseUrl}/payments/${uriPram}/confirm`
     let headers = Utils.getHeader(
       ~apiKey=publishableKey,
-      ~appId=nativeProp.hyperParams.appId,
-      ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+      ~appId=nativeProp.sdkParams.appId,
+      ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
       (),
     )
 
@@ -217,14 +272,14 @@ let useRedirectHook = () => {
       let netceteraSDKApiKey = nativeProp.configuration.netceteraSDKApiKey->Option.getOr("")
       handleNativeThreeDS(
         ~baseUrl,
-        ~appId=nativeProp.hyperParams.appId,
+        ~appId=nativeProp.sdkParams.appId,
         ~netceteraSDKApiKey,
         ~clientSecret,
         ~publishableKey,
-        ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+        ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
         ~nextAction,
         ~retrievePayment,
-        ~sdkEnvironment=nativeProp.env,
+        ~sdkEnvironment=nativeProp.hyperswitchConfig.environment,
         ~onSuccess=message => {
           responseCallback(
             ~paymentStatus=PaymentSuccess,
@@ -317,44 +372,95 @@ let useRedirectHook = () => {
       }
     }
 
+    let handleInvokeDDCFlow = (~nextAction) => {
+      let {iframeUrl, timeoutMs} =
+        (nextAction->Option.getOr(defaultNextAction)).ddc_data->Option.getOr(
+          DdcTypes.defaultDdcData,
+        )
+      HyperModule.openIframeBridge(iframeUrl, timeoutMs, rawMessage => {
+        if rawMessage === "" {
+          errorCallback(
+            ~errorMessage={
+              status: "failed",
+              message: "DDC failed or timed out",
+              type_: "invoke_ddc_error",
+              code: "ddc_failure",
+            },
+            ~closeSDK=true,
+            (),
+          )
+        } else {
+          let parsed = rawMessage->JSON.parseExn->Utils.getDictFromJson
+          let nextActionType =
+            parsed
+            ->Dict.get("next_action")
+            ->Option.flatMap(JSON.Decode.object)
+            ->Option.flatMap(d => d->Dict.get("type"))
+            ->Option.flatMap(JSON.Decode.string)
+            ->Option.getOr("")
+          let redirectUrl =
+            parsed
+            ->Dict.get("next_action")
+            ->Option.flatMap(JSON.Decode.object)
+            ->Option.flatMap(d => d->Dict.get("url"))
+            ->Option.flatMap(JSON.Decode.string)
+            ->Option.getOr("")
+          switch nextActionType {
+          | "redirect_to_url" if redirectUrl !== "" =>
+            if (
+              redirectUrl->String.includes("status=succeeded") ||
+              redirectUrl->String.includes("status=processing") ||
+              redirectUrl->String.includes("status=requires_capture") ||
+              redirectUrl->String.includes("status=partially_captured")
+            ) {
+              let _ = (
+                async () => {
+                  let s = await retrievePayment(Payment, clientSecret, publishableKey)
+                  redirectionSuccessHandler(~s, ~errorCallback, ~responseCallback)
+                }
+              )()
+            } else if (
+              redirectUrl->String.includes("status=failed") ||
+                redirectUrl->String.includes("status=requires_payment_method")
+            ) {
+              redirectionFailureHandler(~errorCallback)
+            } else {
+              browserRedirectionHandler(
+                ~clientSecret,
+                ~publishableKey,
+                ~openUrl=redirectUrl,
+                ~responseCallback,
+                ~errorCallback,
+                ~paymentMethod,
+              )->ignore
+            }
+          | _ =>
+            errorCallback(
+              ~errorMessage={
+                status: "failed",
+                message: `DDC failed: invalid next action type - ${nextActionType}`,
+                type_: "invoke_ddc_error",
+                code: "ddc_failure",
+              },
+              ~closeSDK=true,
+              (),
+            )
+          }
+        }
+      })
+    }
+
     let handleApiRes = (~status, ~reUri, ~error: error, ~nextAction: option<nextAction>=?) => {
       switch nextAction->PaymentUtils.getActionType {
       | "three_ds_invoke" => handleInvokeThreeDSFlow(~nextAction)
       | "third_party_sdk_session_token" => handleThirdPartySDKSessionFlow(~nextAction)
       | "display_bank_transfer_information" => handleBankTransferFlow(~nextAction)
+      | "invoke_ddc" => handleInvokeDDCFlow(~nextAction)
       | _ => handleDefaultPaymentFlows(~status, ~reUri, ~error)
       }
     }
 
     redirectionHandler(~body, ~errorCallback, ~handleApiRes, ~headers, ~uri)->ignore
-  }
-}
-
-let useGetSavedPMHook = () => {
-  let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let apiLogWrapper = LoggerHook.useApiLogWrapper()
-  let baseUrl = GlobalHooks.useGetBaseUrl()()
-  () => {
-    switch WebKit.platform {
-    | #next => Promise.resolve(Next.clistRes)
-    | _ =>
-      let uri = switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
-      | Some(_) => `${baseUrl}/customers/payment_methods`
-      | None => `${baseUrl}/customers/payment_methods?client_secret=${nativeProp.clientSecret}`
-      }
-      APIUtils.fetchApiWrapper(
-        ~uri,
-        ~method=#GET,
-        ~headers=Utils.getHeader(
-          ~apiKey=nativeProp.publishableKey,
-          ~appId=nativeProp.hyperParams.appId,
-          ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
-          (),
-        ),
-        ~eventName=LoggerTypes.CUSTOMER_PAYMENT_METHODS_CALL,
-        ~apiLogWrapper,
-      )
-    }
   }
 }
 
@@ -375,21 +481,21 @@ let useDeleteSavedPaymentMethod = () => {
       (),
     )
 
-    if nativeProp.ephemeralKey->Option.isSome {
+    switch nativeProp.configuration.customer->Option.map(customer => customer.ephemeralKeySecret) {
+    | Some(ephemeralKeySecret) =>
       APIUtils.fetchApiWrapper(
         ~uri,
         ~method=#DELETE,
         ~headers=Utils.getHeader(
-          ~apiKey=nativeProp.ephemeralKey->Option.getOr(""),
-          ~appId=nativeProp.hyperParams.appId,
-          ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+          ~apiKey=ephemeralKeySecret->Option.getOr(""),
+          ~appId=nativeProp.sdkParams.appId,
+          ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
           (),
         ),
         ~eventName=LoggerTypes.DELETE_PAYMENT_METHODS_CALL,
         ~apiLogWrapper,
       )
-    } else {
-      JSON.Null->Promise.resolve
+    | None => JSON.Null->Promise.resolve
     }
   }
 }
@@ -401,12 +507,9 @@ let useEligibilityCheckHook = () => {
     switch WebKit.platform {
     | #next => Promise.resolve(`{"sdk_next_action":{"next_action":"confirm"}}`->JSON.parseExn)
     | _ =>
-      let paymentId =
-        String.split(nativeProp.clientSecret, "_secret_")->Array.get(0)->Option.getOr("")
-      let uri = `${baseUrl}/payments/${paymentId}/eligibility`
+      let uri = `${baseUrl}/payments/${nativeProp.paymentSessionConfig.paymentId}/eligibility`
       let body =
         [
-          ("client_secret", nativeProp.clientSecret->JSON.Encode.string),
           ("payment_method_type", paymentMethodType->JSON.Encode.string),
           ("payment_method_data", paymentMethodData),
         ]
@@ -418,9 +521,9 @@ let useEligibilityCheckHook = () => {
         ~bodyStr=body,
         ~method_=#POST,
         ~headers=Utils.getHeader(
-          ~apiKey=nativeProp.publishableKey,
-          ~appId=nativeProp.hyperParams.appId,
-          ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+          ~apiKey=nativeProp.hyperswitchConfig.publishableKey,
+          ~appId=nativeProp.sdkParams.appId,
+          ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
           (),
         ),
       )->Promise.then(response => response->Fetch.Response.json)
@@ -434,16 +537,16 @@ let useSavePaymentMethod = () => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
 
   (~body: PaymentConfirmTypes.redirectType) => {
-    let uriParam = nativeProp.paymentMethodId
+    let uriParam = nativeProp.paymentSessionConfig.paymentId
     let uri = `${baseUrl}/payment_methods/${uriParam}/save`
 
     APIUtils.fetchApiWrapper(
       ~uri,
       ~method=#POST,
       ~headers=Utils.getHeader(
-        ~apiKey=nativeProp.publishableKey,
-        ~appId=nativeProp.hyperParams.appId,
-        ~sdkAuthorization=nativeProp.sdkAuthorization->Option.getOr(""),
+        ~apiKey=nativeProp.hyperswitchConfig.publishableKey,
+        ~appId=nativeProp.sdkParams.appId,
+        ~sdkAuthorization=nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(""),
         (),
       ),
       ~eventName=LoggerTypes.ADD_PAYMENT_METHOD_CALL,

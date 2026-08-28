@@ -4,16 +4,18 @@ open PaymentEvents
 
 @react.component
 let make = (
-  ~customerPaymentMethods: CustomerPaymentMethodType.customer_payment_methods,
+  ~customerPaymentMethods: ClientResponseType.customerPaymentMethods,
   ~setConfirmButtonData,
   ~merchantName,
   ~isScreenFocus=true,
+  ~setIsScreenFocus=_ => (),
   ~animated=true,
   ~maxVisibleItems=?,
   ~style=empty,
 ) => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let (accountPaymentMethodData, customerPaymentMethodData, sessionTokenData) = React.useContext(
+  let displayInSeparateScreen = nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.groupingBehavior.displayInSeparateScreen
+  let (clientData, sessionTokenData, _) = React.useContext(
     AllApiDataContextNew.allApiDataContext,
   )
   let {getRequiredFieldsForButton, nickname} = React.useContext(
@@ -30,6 +32,7 @@ let make = (
   let handleWalletPayments = ButtonHook.useProcessPayButtonResult()
   let {launchApplePay, launchGPay} = WebKit.useWebKit()
   let notifyValidationFailure = UseWidgetActions.useNotifyValidationFailure()
+  let handleWalletConfirmCallback = WalletConfirmCallback.useWalletConfirmCallback()
 
   let (errorText, setErrorText) = React.useState(_ => None)
 
@@ -48,20 +51,30 @@ let make = (
     setSelectedToken(_ => token)
   }, [setSelectedToken])
 
+  React.useEffect1(() => {
+    // if !isScreenFocus {
+    setSelectedToken(customerPaymentMethods->Array.get(0))
+    setSavedCardCvv(_ => None)
+    setSaveCardChecboxSelected(false)
+
+    // }
+    None
+  }, [customerPaymentMethods])
+
   let emitter = PaymentEvents.usePaymentEventEmitter()
 
   let prevStatusRef = React.useRef(None)
 
   let {
+    bgColor,
     borderWidth,
     borderRadius,
     component,
-    shadowIntensity,
-    shadowColor,
+    shadowConfig,
   } = ThemebasedStyle.useThemeBasedStyle()
-  let getShadowStyle = ShadowHook.useGetShadowStyle(~shadowIntensity, ~shadowColor, ())
+  let getShadowStyle = ShadowHook.useGetShadowStyle(~shadowConfig, ())
 
-  let processRequestSaved = (token: CustomerPaymentMethodType.customer_payment_method_type) => {
+  let processRequestSaved = (token: ClientResponseType.customerPaymentMethod) => {
     setLoading(ProcessingPayments)
 
     let errorCallback = (~errorMessage: PaymentConfirmTypes.error, ~closeSDK, ()) => {
@@ -83,36 +96,43 @@ let make = (
       }
     }
 
-    let paymentMethodType = PaymentUtils.generateSavedCardConfirmBody(
-      ~nativeProp,
-      ~payment_token=token.payment_token,
-      ~savedCardCvv,
-      ~appURL=?{
-        accountPaymentMethodData->Option.map(accountPaymentMethods =>
-          accountPaymentMethods.redirect_url
-        )
-      },
-      ~payment_type_str=accountPaymentMethodData
-      ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type_str)
-      ->Option.getOr(None),
-      ~billing=token.billing,
-      ~screen_height=viewPortContants.screenHeight,
-      ~screen_width=viewPortContants.screenWidth,
-    )
+    let paymentMethodType = if token.payment_method === WALLET {
+      PaymentUtils.generateWalletConfirmBody(
+        ~nativeProp,
+        ~payment_token=token.payment_token,
+        ~payment_method_type=token.payment_method_type,
+        ~payment_type_str=clientData
+        ->Option.map(data => data.intent_data.payment_type_str)
+        ->Option.getOr(None),
+      )
+    } else {
+      PaymentUtils.generateSavedCardConfirmBody(
+        ~nativeProp,
+        ~payment_method=token.payment_method_str,
+        ~payment_token=token.payment_token,
+        ~savedCardCvv,
+        ~payment_type_str=clientData
+        ->Option.map(data => data.intent_data.payment_type_str)
+        ->Option.getOr(None),
+        ~billing=token.billing,
+        ~screen_height=viewPortContants.screenHeight,
+        ~screen_width=viewPortContants.screenWidth,
+      )
+    }
 
     redirectHook(
       ~body=paymentMethodType->Utils.getStringFromRecord,
-      ~publishableKey=nativeProp.publishableKey,
-      ~clientSecret=nativeProp.clientSecret,
+      ~publishableKey=nativeProp.hyperswitchConfig.publishableKey,
+      ~clientSecret=nativeProp.paymentSessionConfig.clientSecret,
       ~errorCallback,
       ~responseCallback,
-      ~paymentMethod="card",
+      ~paymentMethod=token.payment_method_str,
       (),
     )
   }
 
   let processRequest = (
-    paymentMethodData: AccountPaymentMethodType.payment_method_type,
+    paymentMethodData: ClientResponseType.paymentMethodEnabled,
     tabDict: RescriptCore.Dict.t<RescriptCore.JSON.t>,
     walletDict: option<RescriptCore.Dict.t<RescriptCore.JSON.t>>,
     email: option<string>,
@@ -191,23 +211,21 @@ let make = (
       ~payment_method_data=?CommonUtils.mergeDict(paymentMethodDataDict, tabDict)->Dict.get(
         "payment_method_data",
       ),
-      ~payment_type=accountPaymentMethodData
-      ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type)
+      ~payment_type=clientData
+      ->Option.map(data => data.intent_data.payment_type)
       ->Option.getOr(NORMAL),
-      ~payment_type_str=?accountPaymentMethodData
-      ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type_str)
+      ~payment_type_str=?clientData
+      ->Option.map(data => data.intent_data.payment_type_str)
       ->Option.getOr(None),
       ~appURL=?{
-        accountPaymentMethodData->Option.map(accountPaymentMethods =>
-          accountPaymentMethods.redirect_url
-        )
+        clientData->Option.map(data => data.intent_data.return_url)
       },
       ~isSaveCardCheckboxVisible={
         paymentMethodData.payment_method === CARD &&
           nativeProp.configuration.displaySavedPaymentMethodsCheckbox
       },
-      ~isGuestCustomer=customerPaymentMethodData
-      ->Option.map(customerPaymentMethods => customerPaymentMethods.is_guest_customer)
+      ~isGuestCustomer=clientData
+      ->Option.map(data => data.intent_data.is_guest_customer)
       ->Option.getOr(true),
       ~isNicknameSelected=false,
       ~email?,
@@ -218,8 +236,8 @@ let make = (
 
     redirectHook(
       ~body=body->JSON.stringifyAny->Option.getOr(""),
-      ~publishableKey=nativeProp.publishableKey,
-      ~clientSecret=nativeProp.clientSecret,
+      ~publishableKey=nativeProp.hyperswitchConfig.publishableKey,
+      ~clientSecret=nativeProp.paymentSessionConfig.clientSecret,
       ~errorCallback,
       ~responseCallback,
       ~paymentMethod=paymentMethodData.payment_method_type,
@@ -299,10 +317,10 @@ let make = (
   // }, (country, paymentMethodData))
 
   let confirmGPay = var => {
-    switch accountPaymentMethodData {
-    | Some(accountPaymentMethods) =>
+    switch clientData {
+    | Some(data) =>
       let paymentMethodData =
-        accountPaymentMethods.payment_methods->Array.find(payment_method_type =>
+        data.payment_methods_enabled->Array.find(payment_method_type =>
           payment_method_type.payment_method_type_wallet === GOOGLE_PAY
         )
       switch paymentMethodData {
@@ -330,10 +348,10 @@ let make = (
   }
 
   let confirmApplePay = (var: dict<JSON.t>) => {
-    switch accountPaymentMethodData {
-    | Some(accountPaymentMethods) =>
+    switch clientData {
+    | Some(data) =>
       let paymentMethodData =
-        accountPaymentMethods.payment_methods->Array.find(payment_method_type =>
+        data.payment_methods_enabled->Array.find(payment_method_type =>
           payment_method_type.payment_method_type_wallet === APPLE_PAY
         )
 
@@ -391,10 +409,16 @@ let make = (
     None
   }, [selectedToken])
 
+  // NOTE: To introduce a new component that shows Terms and conditions.
+  // Terms list that proceeding with payment using card/ saved card/ wallet would save the payment method details
   let showDisclaimer =
-    accountPaymentMethodData
-    ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type)
+    clientData
+    ->Option.map(data => data.intent_data.payment_type)
     ->Option.getOr(NORMAL) !== NORMAL
+
+  let onAbort = () => {
+    setLoading(FillingDetails)
+  }
 
   let handlePress = _ => {
     switch (
@@ -447,52 +471,56 @@ let make = (
               (),
             )
 
-            let timerId = setTimeout(() => {
-              setLoading(FillingDetails)
-              showAlert(~errorType="warning", ~message="Apple Pay Error, Please try again")
-              logger(
-                ~logType=DEBUG,
-                ~value="apple_pay",
-                ~category=USER_EVENT,
-                ~paymentMethod="apple_pay",
-                ~eventName=APPLE_PAY_PRESENT_FAIL_FROM_NATIVE,
-                (),
-              )
-            }, 5000)
+            let doLaunchApplePay = () => {
+              let timerId = setTimeout(() => {
+                setLoading(FillingDetails)
+                showAlert(~errorType="warning", ~message="Apple Pay Error, Please try again")
+                logger(
+                  ~logType=DEBUG,
+                  ~value="apple_pay",
+                  ~category=USER_EVENT,
+                  ~paymentMethod="apple_pay",
+                  ~eventName=APPLE_PAY_PRESENT_FAIL_FROM_NATIVE,
+                  (),
+                )
+              }, 5000)
 
-            WebKit.platform === #ios
-              ? HyperModule.launchApplePay(
-                  [
-                    ("session_token_data", sessionObject.session_token_data),
-                    ("payment_request_data", sessionObject.payment_request_data),
-                  ]
-                  ->Dict.fromArray
-                  ->JSON.Encode.object
-                  ->JSON.stringify,
-                  confirmApplePay,
-                  _ => {
-                    logger(
-                      ~logType=DEBUG,
-                      ~value="apple_pay",
-                      ~category=USER_EVENT,
-                      ~paymentMethod="apple_pay",
-                      ~eventName=APPLE_PAY_BRIDGE_SUCCESS,
-                      (),
-                    )
-                  },
-                  _ => {
-                    clearTimeout(timerId)
-                  },
-                )
-              : launchApplePay(
-                  [
-                    ("session_token_data", sessionObject.session_token_data),
-                    ("payment_request_data", sessionObject.payment_request_data),
-                  ]
-                  ->Dict.fromArray
-                  ->JSON.Encode.object
-                  ->JSON.stringify,
-                )
+              WebKit.platform === #ios
+                ? HyperModule.launchApplePay(
+                    [
+                      ("session_token_data", sessionObject.session_token_data),
+                      ("payment_request_data", sessionObject.payment_request_data),
+                    ]
+                    ->Dict.fromArray
+                    ->JSON.Encode.object
+                    ->JSON.stringify,
+                    confirmApplePay,
+                    _ => {
+                      logger(
+                        ~logType=DEBUG,
+                        ~value="apple_pay",
+                        ~category=USER_EVENT,
+                        ~paymentMethod="apple_pay",
+                        ~eventName=APPLE_PAY_BRIDGE_SUCCESS,
+                        (),
+                      )
+                    },
+                    _ => {
+                      clearTimeout(timerId)
+                    },
+                  )
+                : launchApplePay(
+                    [
+                      ("session_token_data", sessionObject.session_token_data),
+                      ("payment_request_data", sessionObject.payment_request_data),
+                    ]
+                    ->Dict.fromArray
+                    ->JSON.Encode.object
+                    ->JSON.stringify,
+                  )
+            }
+
+            handleWalletConfirmCallback("apple_pay", doLaunchApplePay, onAbort)->ignore
           }
 
         | GOOGLE_PAY =>
@@ -503,15 +531,33 @@ let make = (
             ->Option.getOr(SessionsType.defaultToken)
           | _ => SessionsType.defaultToken
           }
-          WebKit.platform === #android
-            ? HyperModule.launchGPay(
-                WalletType.getGpayTokenStringified(~obj=sessionObject, ~appEnv=nativeProp.env),
-                confirmGPay,
-              )
-            : launchGPay(
-                WalletType.getGpayTokenStringified(~obj=sessionObject, ~appEnv=nativeProp.env),
-              )
-        | _ => processRequestSaved(token)
+          let doLaunchGPay = () => {
+            WebKit.platform === #android
+              ? HyperModule.launchGPay(
+                  WalletType.getGpayTokenStringified(
+                    ~obj=sessionObject,
+                    ~appEnv=nativeProp.hyperswitchConfig.environment,
+                  ),
+                  confirmGPay,
+                )
+              : launchGPay(
+                  WalletType.getGpayTokenStringified(
+                    ~obj=sessionObject,
+                    ~appEnv=nativeProp.hyperswitchConfig.environment,
+                  ),
+                )
+          }
+          handleWalletConfirmCallback("google_pay", doLaunchGPay, onAbort)->ignore
+        | PAYPAL =>
+          handleWalletConfirmCallback("paypal", () => processRequestSaved(token), onAbort)->ignore
+        | SAMSUNG_PAY =>
+          handleWalletConfirmCallback(
+            "samsung_pay",
+            () => processRequestSaved(token),
+            onAbort,
+          )->ignore
+        | _ =>
+          handleWalletConfirmCallback("wallet", () => processRequestSaved(token), onAbort)->ignore
         }
       | _ => processRequestSaved(token)
       }
@@ -587,20 +633,23 @@ let make = (
   }, (selectedToken, savedCardCvv))
 
   React.useEffect(() => {
-    let confirmButton = {
-      GlobalConfirmButton.loading: false,
-      handlePress,
-      payment_method_type: selectedToken
-      ->Option.map(token => token.payment_method_type)
-      ->Option.getOr("Saved Payment"),
-      customer_payment_experience: ?selectedToken->Option.map(token => token.payment_experience),
-      errorText,
+    if isScreenFocus {
+      let confirmButton = {
+        GlobalConfirmButton.loading: false,
+        handlePress,
+        payment_method_type: selectedToken
+        ->Option.map(token => token.payment_method_type)
+        ->Option.getOr("Saved Payment"),
+        customer_payment_experience: ?selectedToken->Option.map(token => token.payment_experience),
+        errorText,
+        visible: true,
+      }
+      setConfirmButtonData(confirmButton)
     }
-    setConfirmButtonData(confirmButton)
 
     None
   }, (
-    accountPaymentMethodData,
+    clientData,
     customerPaymentMethods,
     sessionTokenData,
     setConfirmButtonData,
@@ -608,20 +657,32 @@ let make = (
     savedCardCvv,
     errorText,
     isSaveCardCheckboxSelected,
+    isScreenFocus,
   ))
 
   <ErrorBoundary level={FallBackScreen.Screen} rootTag=nativeProp.rootTag>
-    <Space />
+    <UIUtils.RenderIf condition=displayInSeparateScreen>
+      <Space />
+    </UIUtils.RenderIf>
     <View
       style={array([
-        getShadowStyle,
+        displayInSeparateScreen ||
+        (nativeProp.configuration.paymentMethodLayout.layoutType === Tabs &&
+          !nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.groupingBehavior.displayInSeparateSection)
+          ? s({
+              borderRadius,
+              borderWidth,
+              borderColor: component.borderColor,
+            })
+          : empty,
+        bgColor,
+        nativeProp.configuration.paymentMethodLayout.layoutType === Tabs &&
+          !nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.groupingBehavior.displayInSeparateSection
+          ? getShadowStyle
+          : empty,
         s({
-          paddingHorizontal: 16.->dp,
-          paddingVertical: 5.->dp,
-          borderRadius,
-          borderWidth,
-          borderColor: component.borderColor,
-          backgroundColor: component.background,
+          flexShrink: 1.,
+          backgroundColor: ?(displayInSeparateScreen ? Some(component.background) : None),
         }),
         style,
       ])}>
@@ -632,13 +693,14 @@ let make = (
         savedCardCvv
         setSavedCardCvv
         isScreenFocus
+        setIsScreenFocus
         animated
         ?maxVisibleItems
       />
     </View>
     {showDisclaimer && savedCardCvv->Option.isSome
       ? <View style={s({paddingHorizontal: 2.->dp})}>
-          <Space />
+          // <Space />
           <ClickableTextElement
             disabled={false}
             initialIconName="checkboxClicked"
@@ -648,8 +710,9 @@ let make = (
             setIsSelected={setSaveCardChecboxSelected}
             textType={TextWrapper.ModalText}
           />
-          <Space height=5. />
+          // <Space height=5. />
+          <Space />
         </View>
-      : React.null}
+      : <Space height=4. />}
   </ErrorBoundary>
 }

@@ -1,28 +1,9 @@
 open Utils
 
-type hyperModule = {
-  sendMessageToNative: string => unit,
-  launchApplePay: (string, Dict.t<JSON.t> => unit) => unit,
-  startApplePay: (string, Dict.t<JSON.t> => unit) => unit,
-  presentApplePay: (string, Dict.t<JSON.t> => unit) => unit,
-  launchGPay: (string, Dict.t<JSON.t> => unit) => unit,
-  exitPaymentsheet: (int, string, bool) => unit,
-  exitPaymentMethodManagement: (int, string, bool) => unit,
-  exitWidget: (string, string) => unit,
-  exitCardForm: string => unit,
-  launchWidgetPaymentSheet: (string, Dict.t<JSON.t> => unit) => unit,
-  onAddPaymentMethod: string => unit,
-  exitWidgetPaymentsheet: (int, string, bool) => unit,
-  updateWidgetHeight: int => unit,
-  emitPaymentEvent: (string, string, JSON.t) => unit,
-  onUpdateIntentEvent: (int, string, string) => unit,
-}
-
 type useExitPaymentsheetReturnType = {
   exit: (PaymentConfirmTypes.error, bool) => unit,
   simplyExit: (PaymentConfirmTypes.error, int, bool) => unit,
 }
-
 
 // Widget action types that can be triggered from native side
 type widgetActionType = ConfirmPayment | ConfirmCvcPayment
@@ -44,23 +25,33 @@ let widgetActionTypeFromString = (str: string): option<widgetActionType> =>
 type widgetActionData = {
   actionType: widgetActionType,
   rootTag: int,
+  sdkAuthorization: option<string>,
   paymentToken: option<string>,
-  paymentMethodId: option<string>,
+  billing: option<JSON.t>,
 }
 
 let widgetActionDataMapper = (dict: Dict.t<JSON.t>): option<widgetActionData> => {
   let actionTypeStr = dict->getString("actionType", "")
   let rootTag = dict->getInt("rootTag", -1)
   let paymentToken = dict->getOptionString("paymentToken")
-  let paymentMethodId = dict->getOptionString("paymentMethodId")
+  let sdkAuthorization = dict->getOptionString("sdkAuthorization")
+  let billing =
+    dict
+    ->getOptionString("billing")
+    ->Option.flatMap(str =>
+      try Some(str->JSON.parseExn) catch {
+      | _ => None
+      }
+    )
 
   actionTypeStr
   ->widgetActionTypeFromString
   ->Option.map(actionType => {
     actionType,
     rootTag,
+    sdkAuthorization,
     paymentToken,
-    paymentMethodId,
+    billing,
   })
 }
 
@@ -81,7 +72,9 @@ type updateIntentData = {
   sdkAuthorization: option<string>,
 }
 
-let updateIntentDataMapper = (eventName: string, dict: Dict.t<JSON.t>): option<updateIntentData> => {
+let updateIntentDataMapper = (eventName: string, dict: Dict.t<JSON.t>): option<
+  updateIntentData,
+> => {
   let rootTag = dict->getInt("rootTag", -1)
   let sdkAuthorization = dict->getOptionString("sdkAuthorization")
 

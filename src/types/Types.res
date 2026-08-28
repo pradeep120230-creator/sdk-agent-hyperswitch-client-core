@@ -1,4 +1,4 @@
-type retrieve = Payment | List
+type retrieve = Payment
 
 let defaultButtonElementArr = ["apple_pay", "google_pay", "paypal"]
 
@@ -28,5 +28,5 @@ let priorityArr =
     "evoucher",
     "classic",
     "cashapp",
-    "eft"
+    "eft",
   ]->Array.toReversed

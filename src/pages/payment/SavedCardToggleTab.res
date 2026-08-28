@@ -2,11 +2,11 @@
 let make = (
   ~isScreenFocus,
   ~setConfirmButtonData,
-  ~paymentMethodData: AccountPaymentMethodType.payment_method_type,
-  ~savedCardMethods: CustomerPaymentMethodType.customer_payment_methods,
+  ~paymentMethodData: ClientResponseType.paymentMethodEnabled,
+  ~savedCardMethods: ClientResponseType.customerPaymentMethods,
 ) => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let (accountPaymentMethodData, _, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
+  let (clientData, _, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
   let localeObject = GetLocale.useGetLocalObj()
 
   let hasSavedCards = savedCardMethods->Array.length > 0
@@ -17,8 +17,8 @@ let make = (
   }, [setShowSavedView])
 
   let merchantName =
-    accountPaymentMethodData
-    ->Option.map(data => data.merchant_name)
+    clientData
+    ->Option.map(data => data.intent_data.merchant_name)
     ->Option.getOr(nativeProp.configuration.merchantDisplayName)
 
   if !hasSavedCards {
@@ -30,9 +30,9 @@ let make = (
         customerPaymentMethods=savedCardMethods
         setConfirmButtonData
         merchantName
-        animated=false
+        animated=true
       />
-      <Space />
+      {nativeProp.configuration.paymentMethodLayout.layoutType === Tabs ? <Space /> : React.null}
       <ClickableTextElement
         initialIconName="addwithcircle"
         updateIconName={Some("cardv1")}
@@ -42,12 +42,14 @@ let make = (
         textType={TextWrapper.LinkTextBold}
         size=24.
       />
-      <Space height=5. />
+      {nativeProp.configuration.paymentMethodLayout.layoutType === Accordion
+        ? <Space height=20. />
+        : React.null}
     </>
   } else {
     <>
       <PaymentMethod isScreenFocus paymentMethodData setConfirmButtonData />
-      <Space />
+      {nativeProp.configuration.paymentMethodLayout.layoutType === Tabs ? <Space /> : React.null}
       <ClickableTextElement
         initialIconName="cardv1"
         updateIconName={Some("addwithcircle")}
@@ -57,7 +59,9 @@ let make = (
         textType={TextWrapper.LinkTextBold}
         size=24.
       />
-      <Space height=5. />
+      {nativeProp.configuration.paymentMethodLayout.layoutType === Accordion
+        ? <Space height=20. />
+        : React.null}
     </>
   }
 }

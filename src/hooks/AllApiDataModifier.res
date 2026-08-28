@@ -14,31 +14,49 @@ type walletProp = {
   sessionObject: SessionsType.sessions,
 }
 
-let useAccountPaymentMethodModifier = () => {
+let usePaymentMethodModifier = () => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let (accountPaymentMethodData, customerPaymentMethodData, sessionTokenData) = React.useContext(
+  let (clientData, sessionTokenData, sdkConfigData) = React.useContext(
     AllApiDataContextNew.allApiDataContext,
   )
+  let superpositionConfig = sdkConfigData->Option.getOr(SdkConfigTypes.defaultSdkConfigValue)
   let samsungPayStatus = SamsungPay.useSamsungPayValidityHook()
 
   React.useMemo3(() => {
-    let groupingBehavior =
-      nativeProp.configuration.appearance.layout.savedMethodCustomization.groupingBehavior
+    let groupingBehavior = nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.groupingBehavior
 
-    // Show a merged "Saved" tab only when displayInSeparateScreen=false AND groupByPaymentMethods=false
+    // Show a merged "Saved" tab only when displaySavedPaymentMethods=true AND displayInSeparateScreen=false AND groupByPaymentMethods=false
     let showMergedSavedTab =
-      !groupingBehavior.displayInSeparateScreen && !groupingBehavior.groupByPaymentMethods
+      nativeProp.configuration.displaySavedPaymentMethods &&
+      !groupingBehavior.displayInSeparateScreen &&
+      !groupingBehavior.groupByPaymentMethods &&
+      !groupingBehavior.displayInSeparateSection
 
     let (initialTabArr, initialElementArr) = if showMergedSavedTab {
-      customerPaymentMethodData
-      ->Option.map(customerPaymentMethods => {
+      switch clientData {
+      | None =>
+        switch nativeProp.sdkState {
+        | PaymentSheet | WidgetPaymentSheet | HostedCheckout | TabSheet | WidgetTabSheet => (
+            [
+              {
+                name: "Saved",
+                paymentMethodType: "saved_payment_method",
+                componentHoc: (~isScreenFocus as _, ~setConfirmButtonData as _) =>
+                  <InitialLoader />,
+              },
+            ],
+            [],
+          )
+        | _ => ([], [])
+        }
+      | Some(customerPaymentMethods) =>
         switch nativeProp.sdkState {
         | PaymentSheet | WidgetPaymentSheet | HostedCheckout | TabSheet | WidgetTabSheet =>
-          let customerPaymentMethods =
-            customerPaymentMethods.customer_payment_methods->Array.filter(
-              customer_payment_method_type =>
-                customer_payment_method_type.payment_method !== WALLET,
-            )
+          let customerPaymentMethods = customerPaymentMethods.customer_payment_methods
+          // ->Array.filter(
+          //   customer_payment_method_type =>
+          //     customer_payment_method_type.payment_method !== WALLET,
+          // )
           (
             customerPaymentMethods->Array.length > 0
               ? [
@@ -50,10 +68,10 @@ let useAccountPaymentMethodModifier = () => {
                         isScreenFocus
                         customerPaymentMethods
                         setConfirmButtonData
-                        merchantName={accountPaymentMethodData
-                        ->Option.map(data => data.merchant_name)
+                        merchantName={clientData
+                        ->Option.map(data => data.intent_data.merchant_name)
                         ->Option.getOr(nativeProp.configuration.merchantDisplayName)}
-                        animated=false
+                        animated=true
                         style={ReactNative.Style.s({marginBottom: 10.->ReactNative.Style.dp})}
                       />,
                   },
@@ -72,21 +90,20 @@ let useAccountPaymentMethodModifier = () => {
           ([], [])
         | _ => ([], [])
         }
-      })
-      ->Option.getOr(([], []))
+      }
     } else {
       ([], [])
     }
 
-    switch accountPaymentMethodData {
-    | Some(accountPaymentMethodData) =>
-      accountPaymentMethodData.payment_methods->Array.reduce(
+    switch clientData {
+    | Some(clientData) =>
+      clientData.payment_methods_enabled->Array.reduce(
         (initialTabArr, initialElementArr, []),
         (
           (tabArr, elementArr, giftCardArr): (
             array<hoc>,
             array<React.element>,
-            array<AccountPaymentMethodType.payment_method_type>,
+            array<ClientResponseType.paymentMethodEnabled>,
           ),
           paymentMethodData,
         ) => {
@@ -128,7 +145,7 @@ let useAccountPaymentMethodModifier = () => {
               ? Some()
               : None
           | PAYPAL =>
-            exp->Option.isSome && PaypalModule.payPalModule->Option.isSome
+            exp->Option.isSome && PaypalModule.isAvailable
               ? Some()
               : switch paymentMethodData.payment_experience->Array.find(
                   x => x.payment_experience_type_decode === REDIRECT_TO_URL,
@@ -153,11 +170,7 @@ let useAccountPaymentMethodModifier = () => {
               paymentMethodData.payment_method === CARD
 
             let savedCardMethods =
-              customerPaymentMethodData
-              ->Option.map(cpm =>
-                cpm.customer_payment_methods->Array.filter(m => m.payment_method === CARD)
-              )
-              ->Option.getOr([])
+              clientData.customer_payment_methods->Array.filter(m => m.payment_method === CARD)
 
             switch nativeProp.sdkState {
             | PaymentSheet | WidgetPaymentSheet | HostedCheckout =>
@@ -176,10 +189,7 @@ let useAccountPaymentMethodModifier = () => {
                     componentHoc: isGroupByPMCard
                       ? (~isScreenFocus, ~setConfirmButtonData) =>
                           <SavedCardToggleTab
-                            isScreenFocus
-                            setConfirmButtonData
-                            paymentMethodData
-                            savedCardMethods
+                            isScreenFocus setConfirmButtonData paymentMethodData savedCardMethods
                           />
                       : (~isScreenFocus, ~setConfirmButtonData) =>
                           <PaymentMethod isScreenFocus paymentMethodData setConfirmButtonData />,
@@ -192,10 +202,7 @@ let useAccountPaymentMethodModifier = () => {
                 componentHoc: isGroupByPMCard
                   ? (~isScreenFocus, ~setConfirmButtonData) =>
                       <SavedCardToggleTab
-                        isScreenFocus
-                        setConfirmButtonData
-                        paymentMethodData
-                        savedCardMethods
+                        isScreenFocus setConfirmButtonData paymentMethodData savedCardMethods
                       />
                   : (~isScreenFocus, ~setConfirmButtonData) =>
                       <PaymentMethod isScreenFocus paymentMethodData setConfirmButtonData />,
@@ -220,10 +227,11 @@ let useAccountPaymentMethodModifier = () => {
         name: "loading",
         paymentMethodType: "loading",
         componentHoc: (~isScreenFocus as _, ~setConfirmButtonData as _) => <>
-          <Space height=20. />
+          <Space height=10. />
           <CustomLoader />
           <Space height=10. />
           <CustomLoader />
+          <Space height=20. />
         </>,
       }
 
@@ -256,11 +264,11 @@ let useAccountPaymentMethodModifier = () => {
       | _ => ([], [], [])
       }
     }
-  }, (accountPaymentMethodData, customerPaymentMethodData, sessionTokenData))
+  }, (clientData, sessionTokenData, superpositionConfig.payment_methods))
 }
 
 let useAddWebPaymentButton = () => {
-  let (accountPaymentMethodData, _, sessionTokenData) = React.useContext(
+  let (clientData, sessionTokenData, _) = React.useContext(
     AllApiDataContextNew.allApiDataContext,
   )
   let (addApplePay, addGooglePay) =
@@ -270,9 +278,9 @@ let useAddWebPaymentButton = () => {
 
   React.useMemo2(() => {
     if ReactNative.Platform.os === #web {
-      switch accountPaymentMethodData {
-      | Some(accountPaymentMethodData) =>
-        accountPaymentMethodData.payment_methods->Array.forEach(paymentMethodData => {
+      switch clientData {
+      | Some(clientData) =>
+        clientData.payment_methods_enabled->Array.forEach(paymentMethodData => {
           let sessionObject = switch sessionTokenData {
           | Some(sessionData) =>
             sessionData
@@ -323,7 +331,7 @@ let useAddWebPaymentButton = () => {
       | None => ()
       }
     }
-  }, (accountPaymentMethodData, sessionTokenData))
+  }, (clientData, sessionTokenData))
 }
 
 let useWidgetListModifier = () => {

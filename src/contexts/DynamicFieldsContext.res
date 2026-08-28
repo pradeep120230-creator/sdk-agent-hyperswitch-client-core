@@ -4,7 +4,7 @@ type walletDataRecord = {
   walletDict: Dict.t<JSON.t>,
   isCardPayment: bool,
   enabledCardSchemes: array<string>,
-  paymentMethodData: AccountPaymentMethodType.payment_method_type,
+  paymentMethodData: ClientResponseType.paymentMethodEnabled,
   billingAddress: option<SdkTypes.addressDetails>,
   shippingAddress: option<SdkTypes.addressDetails>,
   useIntentData: bool,
@@ -19,7 +19,7 @@ type dynamicFieldsData = {
   sheetType: sheetType,
   setSheetType: sheetType => unit,
   getRequiredFieldsForTabs: (
-    AccountPaymentMethodType.payment_method_type,
+    ClientResponseType.paymentMethodEnabled,
     Dict.t<JSON.t>,
     bool,
   ) => (
@@ -31,7 +31,7 @@ type dynamicFieldsData = {
     string,
   ),
   getRequiredFieldsForButton: (
-    AccountPaymentMethodType.payment_method_type,
+    ClientResponseType.paymentMethodEnabled,
     RescriptCore.Dict.t<Core__JSON.t>,
     option<SdkTypes.addressDetails>,
     option<SdkTypes.addressDetails>,
@@ -73,9 +73,7 @@ let dynamicFieldsContext = React.createContext({
       payment_method_type: "",
       payment_method_type_wallet: NONE,
       card_networks: [],
-      bank_names: [],
       payment_experience: [],
-      required_fields: Dict.make(),
     },
     billingAddress: None,
     shippingAddress: None,
@@ -95,12 +93,82 @@ module Provider = {
   let make = React.Context.provider(dynamicFieldsContext)
 }
 
+let buildIntentData = (flatByWritePath: Dict.t<string>): JSON.t => {
+  let prefix = "payment_method_data."
+  let byReadPath = Dict.make()
+  flatByWritePath
+  ->Dict.toArray
+  ->Array.forEach(((writePath, value)) =>
+    byReadPath->Dict.set(
+      writePath->String.startsWith(prefix)
+        ? writePath->String.sliceToEnd(~start=prefix->String.length)
+        : writePath,
+      value,
+    )
+  )
+  byReadPath->SuperpositionHelper.convertFlatDictToNestedObject->JSON.Encode.object
+}
+
+let intentBillingCountry = (intentData: JSON.t) =>
+  CommonUtils.getStringAtPath(intentData->Utils.getDictFromJson, "billing.address.country")
+
+
+let prepareIntentData = (intentData: JSON.t, fallbackCountry: string) =>
+  switch intentData->intentBillingCountry {
+  | Some(country) if country !== "" => (intentData, country)
+  | _ => (intentData, fallbackCountry)
+  }
+
+let applyCountryDefaults = (
+  ~missingRequiredFields: array<SuperpositionTypes.fieldConfig>,
+  ~initialValues: Dict.t<JSON.t>,
+  ~fallbackCountry: string,
+) => {
+  let overrides = Dict.make()
+  missingRequiredFields->Array.forEach(field =>
+    if field.fieldRenderType === Country {
+      let currentCountry =
+        CommonUtils.getStringAtPath(
+          initialValues,
+          field.confirmRequestWritePath,
+        )->Option.getOr(fallbackCountry)
+
+      let dropdownOptions = field.dropdownOptions->Option.getOr([])
+      let validatedCountry = dropdownOptions->Array.includes(currentCountry)
+        ? currentCountry
+        : dropdownOptions->Array.get(0)->Option.getOr(SdkTypes.defaultCountry)
+
+      overrides->Dict.set(field.confirmRequestWritePath, validatedCountry)
+    }
+  )
+
+  overrides->Dict.keysToArray->Array.length === 0
+    ? initialValues
+    : CommonUtils.mergeDict(initialValues, overrides->SuperpositionHelper.convertFlatDictToNestedObject)
+}
+
 @react.component
 let make = (~children) => {
   let formDataRef = Some(React.useRef(Dict.make()))
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let (accountPaymentMethodData, _, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
-  let getSuperpositionFinalFields = ConfigurationService.useConfigurationService()
+  let (clientData, _, sdkConfigData) = React.useContext(
+    AllApiDataContextNew.allApiDataContext,
+  )
+  let superpositionConfig = sdkConfigData->Option.getOr(SdkConfigTypes.defaultSdkConfigValue)
+  let profile = superpositionConfig.account_config->Option.flatMap(ac => ac.profile)
+  let collectBillingDetailsFromWalletConnector = SdkConfigParser.getCollectBillingDetailsFromWalletConnector(
+    profile,
+  )
+  let collectShippingDetailsFromWalletConnector = SdkConfigParser.getCollectShippingDetailsFromWalletConnector(
+    profile,
+  )
+  let getSuperpositionFinalFields = ConfigurationService.useConfigurationService(
+    ~rawConfigs=superpositionConfig.raw_configs,
+  )
+
+  let (profile_id, processor_merchant_id, organization_id) = SdkConfigParser.getProfileContext(
+    superpositionConfig.context_used,
+  )
 
   let (sheetType, setSheetType) = React.useState(_ => ButtonSheet)
   let setSheetType = React.useCallback1(val => {
@@ -109,7 +177,7 @@ let make = (~children) => {
 
   let (country, setCountry) = React.useState(_ => None)
   let (initialValueCountry, setInitialValueCountry) = React.useState(_ =>
-    nativeProp.hyperParams.country
+    nativeProp.sdkParams.country
   )
 
   let setCountry = React.useCallback1(country => {
@@ -121,77 +189,56 @@ let make = (~children) => {
   }, [setInitialValueCountry])
 
   let getRequiredFieldsForTabs = (
-    paymentMethodData: AccountPaymentMethodType.payment_method_type,
+    paymentMethodData: ClientResponseType.paymentMethodEnabled,
     formData,
     isScreenFocus,
   ) => {
-    let eligibleConnectors = switch paymentMethodData.payment_method {
-    | CARD =>
-      paymentMethodData.card_networks->AccountPaymentMethodType.getEligibleConnectorFromCardNetwork
-    | _ =>
-      paymentMethodData.payment_experience->AccountPaymentMethodType.getEligibleConnectorFromPaymentExperience
-    }
+    let eligibleConnectors =
+      SdkConfigParser.getEligibleConnectorsFromPaymentMethods(
+        superpositionConfig.payment_methods,
+        paymentMethodData.payment_method_str,
+        paymentMethodData.payment_method_type,
+      )->Array.map(JSON.Encode.string)
 
-    let requiredFieldsFromPML = SuperpositionHelper.extractFieldValuesFromPML(
-      paymentMethodData.required_fields,
+    let rawIntentData =
+      clientData
+      ->Option.map(data => data.intent_data.raw_intent_data)
+      ->Option.getOr(Dict.make()->JSON.Encode.object)
+
+    let (intentData, defaultCountry) = prepareIntentData(
+      rawIntentData,
+      nativeProp.sdkParams.country,
     )
-
-    let defaultCountry = switch requiredFieldsFromPML->Dict.get(
-      "payment_method_data.billing.address.country",
-    ) {
-    | Some("") | None => nativeProp.hyperParams.country
-    | Some(country) => country
-    }
 
     let configParams: SuperpositionTypes.superpositionBaseContext = {
       payment_method: paymentMethodData.payment_method_str,
       payment_method_type: paymentMethodData.payment_method_type,
-      mandate_type: accountPaymentMethodData
-      ->Option.map(data => data.payment_type === NORMAL ? "non_mandate" : "mandate")
+      mandate_type: clientData
+      ->Option.map(data => data.intent_data.payment_type === NORMAL ? "non_mandate" : "mandate")
       ->Option.getOr("non_mandate"),
-      collect_billing_details_from_wallet_connector: "required",
-      collect_shipping_details_from_wallet_connector: "required",
+      always_collect_billing_details_from_wallet_connector: collectBillingDetailsFromWalletConnector,
+      always_collect_shipping_details_from_wallet_connector: collectShippingDetailsFromWalletConnector,
       country: switch country {
       | Some(val) => val
       | None => defaultCountry
       },
-    }
-
-    switch requiredFieldsFromPML->Dict.get("payment_method_data.billing.address.country") {
-    | None | Some("") =>
-      requiredFieldsFromPML->Dict.set(
-        "payment_method_data.billing.address.country",
-        nativeProp.hyperParams.country,
-      )
-    | _ => ()
+      platform: WebKit.platformGroup,
+      profile_id: ?profile_id,
+      processor_merchant_id: ?processor_merchant_id,
+      organization_id: ?organization_id,
     }
 
     let (_requiredFields, missingRequiredFields, initialValues) = getSuperpositionFinalFields(
       eligibleConnectors,
       configParams,
-      requiredFieldsFromPML,
+      intentData,
     )
 
-    // Validate CountrySelect fields against their allowed options
-    missingRequiredFields->Array.forEach(field => {
-      switch field.fieldType {
-      | CountrySelect => {
-          let currentCountry =
-            initialValues
-            ->Dict.get(field.outputPath)
-            ->Option.flatMap(JSON.Decode.string)
-            ->Option.getOr(country->Option.getOr(nativeProp.hyperParams.country))
-
-          let validatedCountry =
-            field.options->Array.includes(currentCountry)
-              ? currentCountry
-              : field.options->Array.get(0)->Option.getOr(SdkTypes.defaultCountry)
-
-          initialValues->Dict.set(field.outputPath, JSON.Encode.string(validatedCountry))
-        }
-      | _ => ()
-      }
-    })
+    let initialValues = applyCountryDefaults(
+      ~missingRequiredFields,
+      ~initialValues,
+      ~fallbackCountry=country->Option.getOr(nativeProp.sdkParams.country),
+    )
 
     (
       missingRequiredFields,
@@ -221,9 +268,7 @@ let make = (~children) => {
       payment_method_type: "",
       payment_method_type_wallet: NONE,
       card_networks: [],
-      bank_names: [],
       payment_experience: [],
-      required_fields: Dict.make(),
     },
     billingAddress: None,
     shippingAddress: None,
@@ -258,86 +303,71 @@ let make = (~children) => {
   )
 
   let getRequiredFieldsForButton = (
-    paymentMethodData: AccountPaymentMethodType.payment_method_type,
+    paymentMethodData: ClientResponseType.paymentMethodEnabled,
     walletDict,
     billingAddress,
     shippingAddress,
     useIntentData,
     formData,
   ) => {
-    let eligibleConnectors = switch paymentMethodData.payment_method {
-    | CARD =>
-      paymentMethodData.card_networks
-      ->Array.get(0)
-      ->Option.mapOr([], network => network.eligible_connectors)
-    | _ =>
-      paymentMethodData.payment_experience
-      ->Array.get(0)
-      ->Option.mapOr([], experience => experience.eligible_connectors)
-    }
+    let eligibleConnectors =
+      SdkConfigParser.getEligibleConnectorsFromPaymentMethods(
+        superpositionConfig.payment_methods,
+        paymentMethodData.payment_method_str,
+        paymentMethodData.payment_method_type,
+      )->Array.map(JSON.Encode.string)
 
-    let requiredFieldsFromSource = if (
-      accountPaymentMethodData
-      ->Option.map(accountPaymentMethods =>
-        accountPaymentMethods.collect_billing_details_from_wallets
-      )
-      ->Option.getOr(false) && !useIntentData
+    let rawIntentData = if (
+      SdkConfigParser.getCollectBillingDetailsFromWalletConnector(
+        superpositionConfig.account_config->Option.flatMap(ac => ac.profile),
+      ) && !useIntentData
     ) {
-      let requiredFieldsFromWallet = switch billingAddress {
-      | Some(billingAddress) => AddressUtils.getFlatAddressDict(~billingAddress, ~shippingAddress)
-      | None => SuperpositionHelper.extractFieldValuesFromPML(paymentMethodData.required_fields)
+      switch billingAddress {
+      | Some(billingAddress) =>
+        AddressUtils.getFlatAddressDict(~billingAddress, ~shippingAddress)->buildIntentData
+      | None => Dict.make()->JSON.Encode.object
       }
-      switch requiredFieldsFromWallet->Dict.get("payment_method_data.billing.address.country") {
-      | Some("") | None =>
-        requiredFieldsFromWallet->Dict.set(
-          "payment_method_data.billing.address.country",
-          country->Option.getOr(nativeProp.hyperParams.country),
-        )
-      | _ => ()
-      }
-      requiredFieldsFromWallet
     } else {
-      let requiredFieldsFromPML = SuperpositionHelper.extractFieldValuesFromPML(
-        paymentMethodData.required_fields,
-      )
-      switch requiredFieldsFromPML->Dict.get("payment_method_data.billing.address.country") {
-      | Some("") | None =>
-        requiredFieldsFromPML->Dict.set(
-          "payment_method_data.billing.address.country",
-          country->Option.getOr(nativeProp.hyperParams.country),
-        )
-      | _ => ()
-      }
-      requiredFieldsFromPML
+      clientData
+      ->Option.map(data => data.intent_data.raw_intent_data)
+      ->Option.getOr(Dict.make()->JSON.Encode.object)
     }
 
-    let defaultCountry = switch requiredFieldsFromSource->Dict.get(
-      "payment_method_data.billing.address.country",
-    ) {
-    | Some("") | None => nativeProp.hyperParams.country
-    | Some(country) => country
-    }
+    let (intentData, defaultCountry) = prepareIntentData(
+      rawIntentData,
+      country->Option.getOr(nativeProp.sdkParams.country),
+    )
 
     let configParams: SuperpositionTypes.superpositionBaseContext = {
       payment_method: paymentMethodData.payment_method_str,
       payment_method_type: paymentMethodData.payment_method_type,
-      mandate_type: accountPaymentMethodData
-      ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type)
+      mandate_type: clientData
+      ->Option.map(data => data.intent_data.payment_type)
       ->Option.getOr(NORMAL) === NORMAL
         ? "non_mandate"
         : "mandate",
-      collect_billing_details_from_wallet_connector: "required",
-      collect_shipping_details_from_wallet_connector: "required",
+      always_collect_billing_details_from_wallet_connector: collectBillingDetailsFromWalletConnector,
+      always_collect_shipping_details_from_wallet_connector: collectShippingDetailsFromWalletConnector,
       country: switch country {
       | Some(val) => val
       | None => defaultCountry
       },
+      platform: WebKit.platformGroup,
+      profile_id: ?profile_id,
+      processor_merchant_id: ?processor_merchant_id,
+      organization_id: ?organization_id,
     }
 
     let (_requiredFields, missingRequiredFields, initialValues) = getSuperpositionFinalFields(
       eligibleConnectors,
       configParams,
-      requiredFieldsFromSource,
+      intentData,
+    )
+
+    let initialValues = applyCountryDefaults(
+      ~missingRequiredFields,
+      ~initialValues,
+      ~fallbackCountry=country->Option.getOr(nativeProp.sdkParams.country),
     )
 
     let isFieldsMissing = missingRequiredFields->Array.length > 0
@@ -350,7 +380,7 @@ let make = (~children) => {
           Utils.pruneUnusedFieldsFromDict(
             data,
             "",
-            _requiredFields->Array.map(field => field.outputPath),
+            _requiredFields->Array.map(field => field.confirmRequestWritePath),
           )
         | None => initialValues
         },

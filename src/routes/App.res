@@ -1,6 +1,3 @@
-open ReactNative
-open Style
-
 module ContextWrapper = {
   @react.component
   let make = (~props, ~rootTag, ~children) => {
@@ -8,9 +5,14 @@ module ContextWrapper = {
     <NativePropContext nativeProp>
       <LoggerContext>
         <ViewportContext
-          topInset=nativeProp.hyperParams.topInset bottomInset=nativeProp.hyperParams.bottomInset>
+          topInset={nativeProp.sdkParams.insets
+          ->Option.map(insets => insets.top)
+          ->Option.getOr(None)}
+          bottomInset={nativeProp.sdkParams.insets
+          ->Option.map(insets => insets.bottom)
+          ->Option.getOr(None)}>
           <ThemeContext appearance=nativeProp.configuration.appearance>
-            <LocaleStringDataContext locale=nativeProp.configuration.appearance.locale>
+            <LocaleStringDataContext locale=nativeProp.configuration.locale>
               <CountryStateDataContext>
                 <LoadingContext>
                   <BannerContext> children </BannerContext>
@@ -27,12 +29,7 @@ module ContextWrapper = {
 module App = {
   @react.component
   let make = () => {
-    <View style={s({flex: 1.})}>
-      {WebKit.platform === #android
-        ? <StatusBar translucent=true backgroundColor="transparent" />
-        : React.null}
-      <NavigatorRouterParent />
-    </View>
+    <NavigatorRouterParent />
   }
 }
 

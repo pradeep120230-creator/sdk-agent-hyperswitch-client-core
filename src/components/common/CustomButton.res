@@ -8,7 +8,7 @@ type iconType = CustomIcon(React.element) | NoIcon
 
 @react.component
 let make = (
-  ~loadingText="Loading..",
+  ~loadingText=?,
   ~buttonState: buttonState=Normal,
   ~text=?,
   ~buttonType: buttonType=Primary,
@@ -26,16 +26,13 @@ let make = (
   let {
     payNowButtonColor,
     payNowButtonTextColor,
-    payNowButtonShadowColor,
-    payNowButtonShadowIntensity,
+    payNowButtonShadowConfig,
     component,
     primaryButtonHeight,
   } = ThemebasedStyle.useThemeBasedStyle()
-  let getShadowStyle = ShadowHook.useGetShadowStyle(
-    ~shadowIntensity=payNowButtonShadowIntensity,
-    ~shadowColor=payNowButtonShadowColor,
-    (),
-  )
+  let getShadowStyle = ShadowHook.useGetShadowStyle(~shadowConfig=payNowButtonShadowConfig, ())
+  let localeObject = GetLocale.useGetLocalObj()
+  let loadingText = loadingText->Option.getOr(localeObject.loadingText)
 
   let _buttonColor = switch buttonState {
   | Normal => ("#0048a0", "#0570de")
@@ -86,6 +83,7 @@ let make = (
     disabled
     testID={testID->Option.getOr("")}
     style={array([
+      children->Option.isNone ? getShadowStyle : empty,
       s({
         height: primaryButtonHeight->dp,
         width: 100.->pct,
@@ -104,7 +102,6 @@ let make = (
     }}>
     <View
       style={array([
-        getShadowStyle,
         s({
           width: 100.->pct,
           height: 100.->pct,
@@ -139,7 +136,7 @@ let make = (
               <TextWrapper
                 text={switch buttonState {
                 | LoadingButton => loadingText
-                | Completed => "Complete"
+                | Completed => localeObject.completeButtonText
                 | _ => textStr
                 }}
                 // textType=CardText

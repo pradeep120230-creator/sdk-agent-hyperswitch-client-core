@@ -16,9 +16,8 @@ let useCalculateLatency = () => {
       }
     | "RETRIEVE_CALL"
     | "CONFIRM_CALL"
-    | "SESSIONS_CALL"
-    | "PAYMENT_METHODS_CALL"
-    | "CUSTOMER_PAYMENT_METHODS_CALL" => {
+    | "CLIENT_LIST_CALL"
+    | "SESSIONS_CALL" => {
         let logRequestTimestamp = events->Dict.get(eventName ++ "_INIT")
         switch (logRequestTimestamp, isRequest) {
         | (Some(_), true) => 0.
@@ -51,7 +50,7 @@ let inactiveScreenApiCall = (
     logType: INFO,
     timestamp: timestamp->Float.toString,
     sessionId: session_id,
-    version: nativeProp.hyperParams.sdkVersion,
+    version: nativeProp.sdkParams.sdkVersion,
     codePushVersion: VersionInfo.version,
     clientCoreVersion: VersionInfo.version,
     component: MOBILE,
@@ -62,12 +61,12 @@ let inactiveScreenApiCall = (
     merchantId: publishableKey,
     ?appId,
     platform,
-    userAgent: nativeProp.hyperParams.userAgent->Option.getOr("userAgent"),
+    userAgent: nativeProp.sdkParams.userAgent->Option.getOr("userAgent"),
     eventName,
     firstEvent,
     source: nativeProp.sdkState->SdkTypes.sdkStateToStrMapper,
   }
-  sendLogs(logFile, uri, nativeProp.publishableKey, nativeProp.hyperParams.appId)
+  sendLogs(logFile, uri, nativeProp.hyperswitchConfig.publishableKey, nativeProp.sdkParams.appId)
   updatedEvents->Dict.set(eventName->eventToStrMapper, timestamp)
   setEvents(updatedEvents)
 }
@@ -132,24 +131,24 @@ let useLoggerHook = () => {
     let logFile = {
       logType,
       timestamp: timestamp->Float.toString,
-      sessionId: nativeProp.sessionId,
-      version: nativeProp.hyperParams.sdkVersion,
+      sessionId: nativeProp.sdkParams.sessionId,
+      version: nativeProp.sdkParams.sdkVersion,
       codePushVersion: VersionInfo.version,
       clientCoreVersion: VersionInfo.version,
       component: MOBILE,
       value,
       internalMetadata: internalMetadata->Option.getOr(""),
       category,
-      paymentId: nativeProp.paymentMethodId,
-      merchantId: nativeProp.publishableKey,
-      appId: ?nativeProp.hyperParams.appId,
+      paymentId: nativeProp.paymentSessionConfig.paymentId,
+      merchantId: nativeProp.hyperswitchConfig.publishableKey,
+      appId: ?nativeProp.sdkParams.appId,
       platform: WebKit.platformString,
-      userAgent: nativeProp.hyperParams.userAgent->Option.getOr("userAgent"),
+      userAgent: nativeProp.sdkParams.userAgent->Option.getOr("userAgent"),
       eventName,
       firstEvent,
       paymentMethod: paymentMethod->Option.getOr(""),
       paymentExperience: ?switch paymentExperience {
-      | Some(payment_experience: array<AccountPaymentMethodType.payment_experience>) =>
+      | Some(payment_experience: array<ClientResponseType.paymentExperience>) =>
         payment_experience
         ->Array.get(0)
         ->Option.map(paymentExperience => paymentExperience.payment_experience_type)
@@ -167,15 +166,15 @@ let useLoggerHook = () => {
       latency,
       source: nativeProp.sdkState->SdkTypes.sdkStateToStrMapper,
     }
-    sendLogs(logFile, uri, nativeProp.publishableKey, nativeProp.hyperParams.appId)
+    sendLogs(logFile, uri, nativeProp.hyperswitchConfig.publishableKey, nativeProp.sdkParams.appId)
     updatedEvents->Dict.set(eventName->eventToStrMapper, timestamp)
     setEvents(updatedEvents)
     snooze(
-      ~paymentId=nativeProp.paymentMethodId,
-      ~publishableKey=nativeProp.publishableKey,
-      ~appId=nativeProp.hyperParams.appId,
+      ~paymentId=nativeProp.paymentSessionConfig.paymentId,
+      ~publishableKey=nativeProp.hyperswitchConfig.publishableKey,
+      ~appId=nativeProp.sdkParams.appId,
       ~platform=WebKit.platformString,
-      ~session_id=nativeProp.sessionId,
+      ~session_id=nativeProp.sdkParams.sessionId,
       ~events,
       ~setEvents,
       ~nativeProp,

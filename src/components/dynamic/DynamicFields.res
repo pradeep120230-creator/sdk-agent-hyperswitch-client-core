@@ -14,7 +14,7 @@ let make = (
   ~checkEligibility: option<string> => unit=_ => (),
 ) => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let (accountPaymentMethodData, customerPaymentMethodData, _) = React.useContext(
+  let (clientData, _, _) = React.useContext(
     AllApiDataContextNew.allApiDataContext,
   )
   let {
@@ -27,7 +27,15 @@ let make = (
   } = React.useContext(DynamicFieldsContext.dynamicFieldsContext)
   let localeObject = GetLocale.useGetLocalObj()
 
+  let {logoConfig} = ThemebasedStyle.useThemeBasedStyle()
+
   <>
+    <UIUtils.RenderIf
+      condition={(fields->Array.length > 0 || nativeProp.configuration.redirectionInfo === Shown) &&
+      nativeProp.configuration.paymentMethodLayout.layoutType === Accordion &&
+      logoConfig->Option.isSome}>
+      <Space height=10. />
+    </UIUtils.RenderIf>
     <UIUtils.RenderIf condition={fields->Array.length > 0}>
       <RequiredFields
         fields
@@ -46,12 +54,13 @@ let make = (
     <UIUtils.RenderIf condition={isCardPayment && !isGiftCardPayment && fields->Array.length > 0}>
       {switch (
         nativeProp.configuration.displaySavedPaymentMethodsCheckbox,
-        customerPaymentMethodData->Option.map(data => data.is_guest_customer)->Option.getOr(true),
-        accountPaymentMethodData
-        ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type)
+        nativeProp.configuration.alwaysSendCustomerAcceptance,
+        clientData->Option.map(data => data.intent_data.is_guest_customer)->Option.getOr(true),
+        clientData
+        ->Option.map(data => data.intent_data.payment_type)
         ->Option.getOr(NORMAL),
       ) {
-      | (true, false, NEW_MANDATE | NORMAL) =>
+      | (true, false, false, NEW_MANDATE | NORMAL) =>
         <ReactNative.View
           style={ReactNative.Style.s({paddingHorizontal: 2.->ReactNative.Style.dp})}>
           <ClickableTextElement
@@ -67,30 +76,42 @@ let make = (
         </ReactNative.View>
       | _ => React.null
       }}
-      {switch (
-        customerPaymentMethodData->Option.map(data => data.is_guest_customer)->Option.getOr(true),
-        isNicknameSelected,
-        nativeProp.configuration.displaySavedPaymentMethodsCheckbox,
-        accountPaymentMethodData
-        ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type)
-        ->Option.getOr(NORMAL),
-      ) {
-      | (false, _, true, NEW_MANDATE | NORMAL) =>
-        isNicknameSelected
-          ? <NickNameElement nickname setNickname setIsNicknameValid accessible />
-          : React.null
-      | (false, _, false, NEW_MANDATE) | (false, _, _, SETUP_MANDATE) =>
-        <NickNameElement nickname setNickname setIsNicknameValid accessible />
-      | _ => React.null
-      }}
+      <UIUtils.RenderIf condition={!nativeProp.configuration.hideCardNicknameField}>
+        {switch (
+          clientData->Option.map(data => data.intent_data.is_guest_customer)->Option.getOr(true),
+          isNicknameSelected,
+          nativeProp.configuration.displaySavedPaymentMethodsCheckbox,
+          clientData
+          ->Option.map(data => data.intent_data.payment_type)
+          ->Option.getOr(NORMAL),
+        ) {
+        | (false, _, true, NEW_MANDATE | NORMAL) =>
+          isNicknameSelected
+            ? <NickNameElement nickname setNickname setIsNicknameValid accessible />
+            : React.null
+        | (false, _, false, NEW_MANDATE) | (false, _, _, SETUP_MANDATE) =>
+          <NickNameElement nickname setNickname setIsNicknameValid accessible />
+        | _ => React.null
+        }}
+      </UIUtils.RenderIf>
+      <Space height=10. />
     </UIUtils.RenderIf>
     <UIUtils.RenderIf
       condition={!isCardPayment && !isGiftCardPayment && sheetType !== DynamicFieldsSheet}>
       <UIUtils.RenderIf
-        condition={fields->Array.length == 0 && nativeProp.configuration.appearance.layout.layoutType === Tab}>
+        condition={fields->Array.length == 0 &&
+          nativeProp.configuration.paymentMethodLayout.layoutType === Tabs}>
         <Space />
       </UIUtils.RenderIf>
-      <RedirectionText />
+      <UIUtils.RenderIf condition={nativeProp.configuration.redirectionInfo === Shown}>
+        <RedirectionText />
+        <Space height=10. />
+      </UIUtils.RenderIf>
+    </UIUtils.RenderIf>
+    <UIUtils.RenderIf
+      condition={(fields->Array.length > 0 || nativeProp.configuration.redirectionInfo === Shown) &&
+        nativeProp.configuration.paymentMethodLayout.layoutType === Accordion}>
+      <Space height=10. />
     </UIUtils.RenderIf>
   </>
 }

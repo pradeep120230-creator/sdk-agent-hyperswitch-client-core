@@ -33,11 +33,11 @@ let generateCardConfirmBody = (
 ): PaymentConfirmTypes.redirectType => {
   let isMandate = payment_type !== NORMAL
   {
-    client_secret: ?switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
+    client_secret: ?switch nativeProp.paymentSessionConfig.sdkAuthorization->Utils.getNonEmptyOption {
     | Some(_) => None
-    | None => Some(nativeProp.clientSecret)
+    | None => Some(nativeProp.paymentSessionConfig.clientSecret)
     },
-    return_url: ?Utils.getReturnUrl(~appId=nativeProp.hyperParams.appId, ~appURL),
+    return_url: ?Utils.getReturnUrl(~appId=nativeProp.sdkParams.appId, ~appURL),
     payment_method: payment_method_str,
     payment_method_type,
     ?payment_method_data,
@@ -46,7 +46,8 @@ let generateCardConfirmBody = (
     payment_type: ?payment_type_str,
     customer_acceptance: ?(
       payment_token->Option.isNone &&
-      ((isNicknameSelected && isMandate) ||
+      (nativeProp.configuration.alwaysSendCustomerAcceptance ||
+      isNicknameSelected && isMandate ||
       isMandate && !isNicknameSelected && !(isSaveCardCheckboxVisible->Option.getOr(false)) ||
       payment_type === NORMAL && isNicknameSelected ||
       payment_type === SETUP_MANDATE) &&
@@ -56,35 +57,32 @@ let generateCardConfirmBody = (
               acceptance_type: "online",
               accepted_at: Date.now()->Date.fromTime->Date.toISOString,
               online: {
-                user_agent: ?nativeProp.hyperParams.userAgent,
+                user_agent: Utils.resolveUserAgent(~userAgent=nativeProp.sdkParams.userAgent),
               },
             }
           })
         : None
     ),
     browser_info: {
-      user_agent: ?nativeProp.hyperParams.userAgent,
+      user_agent: Utils.resolveUserAgent(~userAgent=nativeProp.sdkParams.userAgent),
       accept_header: "text\/html,application\/xhtml+xml,application\/xml;q=0.9,image\/webp,image\/apng,*\/*;q=0.8",
-      language: LocaleDataType.localeTypeToString(nativeProp.configuration.appearance.locale),
+      language: LocaleDataType.localeTypeToString(nativeProp.configuration.locale),
       color_depth: 32,
       screen_height: ?screen_height->Option.map(Int.fromFloat),
       screen_width: ?screen_width->Option.map(Int.fromFloat),
       time_zone: Date.make()->Date.getTimezoneOffset,
       java_enabled: true,
       java_script_enabled: true,
-      device_model: ?nativeProp.hyperParams.device_model,
-      os_type: ?nativeProp.hyperParams.os_type,
-      os_version: ?nativeProp.hyperParams.os_version,
+      device_model: ?nativeProp.sdkParams.device_model,
+      os_type: ?nativeProp.sdkParams.os_type,
+      os_version: ?nativeProp.sdkParams.os_version,
     },
   }
 }
 
 let generateSessionsTokenBody = (~clientSecret, ~paymentId, ~sdkAuthorization=?, ~wallet) => {
   let baseArr = [
-    (
-      "payment_id",
-      paymentId->JSON.Encode.string,
-    ),
+    ("payment_id", paymentId->JSON.Encode.string),
     ("wallets", wallet->JSON.Encode.array),
   ]
   let bodyArr = switch sdkAuthorization->Utils.getNonEmptyOption {
@@ -99,22 +97,22 @@ let generateSessionsTokenBody = (~clientSecret, ~paymentId, ~sdkAuthorization=?,
 
 let generateSavedCardConfirmBody = (
   ~nativeProp: SdkTypes.nativeProp,
+  ~payment_method,
   ~payment_token,
   ~savedCardCvv,
   ~payment_type_str,
-  ~appURL: option<string>=?,
   ~screen_height=?,
   ~screen_width=?,
   ~billing=?,
 ): PaymentConfirmTypes.redirectType => {
-  client_secret: ?switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
+  client_secret: ?switch nativeProp.paymentSessionConfig.sdkAuthorization->Utils.getNonEmptyOption {
   | Some(_) => None
-  | None => Some(nativeProp.clientSecret)
+  | None => Some(nativeProp.paymentSessionConfig.clientSecret)
   },
-  payment_method: "card",
+  payment_method,
   payment_token,
   card_cvc: ?(savedCardCvv->Option.isSome ? Some(savedCardCvv->Option.getOr("")) : None),
-  return_url: ?Utils.getReturnUrl(~appId=nativeProp.hyperParams.appId, ~appURL),
+  return_url: ?Utils.getCustomReturnAppUrl(~appId=nativeProp.sdkParams.appId),
   payment_method_data: ?billing->Option.map(address =>
     [("billing", address->Utils.getJsonObjectFromRecord)]
     ->Dict.fromArray
@@ -122,18 +120,18 @@ let generateSavedCardConfirmBody = (
   ),
   payment_type: ?payment_type_str,
   browser_info: {
-    user_agent: ?nativeProp.hyperParams.userAgent,
+    user_agent: Utils.resolveUserAgent(~userAgent=nativeProp.sdkParams.userAgent),
     accept_header: "text\/html,application\/xhtml+xml,application\/xml;q=0.9,image\/webp,image\/apng,*\/*;q=0.8",
-    language: LocaleDataType.localeTypeToString(nativeProp.configuration.appearance.locale),
+    language: LocaleDataType.localeTypeToString(nativeProp.configuration.locale),
     color_depth: 32,
     screen_height: ?screen_height->Option.map(Int.fromFloat),
     screen_width: ?screen_width->Option.map(Int.fromFloat),
     time_zone: Date.make()->Date.getTimezoneOffset,
     java_enabled: true,
     java_script_enabled: true,
-    device_model: ?nativeProp.hyperParams.device_model,
-    os_type: ?nativeProp.hyperParams.os_type,
-    os_version: ?nativeProp.hyperParams.os_version,
+    device_model: ?nativeProp.sdkParams.device_model,
+    os_type: ?nativeProp.sdkParams.os_type,
+    os_version: ?nativeProp.sdkParams.os_version,
   },
 }
 let generateWalletConfirmBody = (
@@ -142,14 +140,56 @@ let generateWalletConfirmBody = (
   ~payment_method_type,
   ~payment_type_str,
 ): PaymentConfirmTypes.redirectType => {
-  client_secret: ?switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
+  client_secret: ?switch nativeProp.paymentSessionConfig.sdkAuthorization->Utils.getNonEmptyOption {
   | Some(_) => None
-  | None => Some(nativeProp.clientSecret)
+  | None => Some(nativeProp.paymentSessionConfig.clientSecret)
   },
   payment_token,
   payment_method: "wallet",
   payment_method_type,
   payment_type: ?payment_type_str,
+}
+
+let generatePostSessionTokensBody = (
+  ~nativeProp: SdkTypes.nativeProp,
+  ~paymentMethodData: ClientResponseType.paymentMethodEnabled,
+  ~sessionObject: SessionsType.sessions,
+  ~payment_type_str: option<string>=?,
+  (),
+): JSON.t => {
+  let sdkData = [("token", JSON.Encode.string(""))]->Dict.fromArray->JSON.Encode.object
+
+  let walletInner =
+    [(paymentMethodData.payment_method_type ++ "_sdk", sdkData)]
+    ->Dict.fromArray
+    ->JSON.Encode.object
+
+  let paymentMethodDataBody =
+    [("wallet", walletInner)]
+    ->Dict.fromArray
+    ->JSON.Encode.object
+
+  let connector = switch sessionObject.connector {
+  | "" =>
+    paymentMethodData.payment_experience
+    ->Array.get(0)
+    ->Option.map(_ => [paymentMethodData.payment_method_type])
+    ->Option.getOr([paymentMethodData.payment_method_type])
+  | c => [c]
+  }
+
+  [
+    ("payment_id", nativeProp.paymentSessionConfig.paymentId->JSON.Encode.string),
+    ("payment_method_type", JSON.Encode.string(paymentMethodData.payment_method_type)),
+    ("payment_method", JSON.Encode.string(paymentMethodData.payment_method_str)),
+    ("client_secret", JSON.Encode.string(nativeProp.paymentSessionConfig.clientSecret)),
+    ("payment_experience", JSON.Encode.string("invoke_sdk_client")),
+    ("connector", connector->Array.map(JSON.Encode.string)->JSON.Encode.array),
+    ("payment_method_data", paymentMethodDataBody),
+    ("payment_type", JSON.Encode.string(payment_type_str->Option.getOr("normal"))),
+  ]
+  ->Dict.fromArray
+  ->JSON.Encode.object
 }
 
 let getActionType = (nextActionObj: option<PaymentConfirmTypes.nextAction>) => {
@@ -160,7 +200,19 @@ let getActionType = (nextActionObj: option<PaymentConfirmTypes.nextAction>) => {
 let getCardNetworks = cardNetworks => {
   switch cardNetworks {
   | Some(cardNetworks) =>
-    cardNetworks->Array.map((item: AccountPaymentMethodType.card_networks) => item.card_network)
+    cardNetworks->Array.map((item: ClientResponseType.cardNetwork) => item.card_network)
   | None => []
   }
 }
+
+let isValidSdkConfig = (value: SdkConfigTypes.sdkConfigValue) =>
+  switch value.raw_configs->Option.flatMap(JSON.Decode.object) {
+  | Some(dict) =>
+    dict->Dict.get("default_configs")->Option.isSome || dict->Dict.get("contexts")->Option.isSome
+  | None => false
+  }
+
+let getSessionCredentialsKey = (nativeProp: SdkTypes.nativeProp) =>
+  `${nativeProp.hyperswitchConfig.publishableKey}|${nativeProp.paymentSessionConfig.paymentId}|${nativeProp.paymentSessionConfig.clientSecret}|${nativeProp.paymentSessionConfig.sdkAuthorization->Option.getOr(
+      "",
+    )}`

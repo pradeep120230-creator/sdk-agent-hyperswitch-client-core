@@ -5,81 +5,22 @@ open PaymentEvents
 @react.component
 let make = () => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let (_, customerPaymentMethodData, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
-  // Ref to hold the latest customerPaymentMethodData so the useEffect0 event listener
-  // always reads the current value instead of the stale one captured at mount time.
-  let customerPaymentMethodDataRef = React.useRef(customerPaymentMethodData)
   let (_, setLoading) = React.useContext(LoadingContext.loadingContext)
   let (cvcValue, setCvcValue) = React.useState(_ => "")
   let cvcValueRef = React.useRef("")
   let (isFocused, setIsFocused) = React.useState(_ => false)
   let emitter = PaymentEvents.usePaymentEventEmitter()
   let localeObject = GetLocale.useGetLocalObj()
-  let {
-    component,
-    dangerColor,
-    borderRadius,
-    borderWidth,
-    primaryColor,
-  } = ThemebasedStyle.useThemeBasedStyle()
+  let {component, dangerColor, primaryColor} = ThemebasedStyle.useThemeBasedStyle()
 
-  // let lastUsedCardPaymentMethod = {
-  //   customerPaymentMethodData
-  //   ->Option.map(customerPaymentMethods => {
-  //     let pmList = customerPaymentMethods.customer_payment_methods
-  //     let cardPaymentMethods =
-  //       pmList->Array.filter(pm => pm.payment_method === PaymentMethodType.CARD)
-
-  //     if cardPaymentMethods->Array.length === 0 {
-  //       None
-  //     } else {
-  //       cardPaymentMethods->Array.reduce(None, (
-  //         a: option<CustomerPaymentMethodType.customer_payment_method_type>,
-  //         b: CustomerPaymentMethodType.customer_payment_method_type,
-  //       ) => {
-  //         let lastUsedAtA = switch a {
-  //         | Some(a) => Some(a.last_used_at)
-  //         | None => None
-  //         }
-  //         lastUsedAtA
-  //         ->Option.map(
-  //           date =>
-  //             compare(
-  //               Date.fromString(date)->Js.Date.getTime,
-  //               Date.fromString(b.last_used_at)->Js.Date.getTime,
-  //             ) < 0
-  //               ? Some(b)
-  //               : a,
-  //         )
-  //         ->Option.getOr(Some(b))
-  //       })
-  //     }
-  //   })
-  //   ->Option.getOr(None)
-  // }
-
-  // let cardNetwork = switch lastUsedCardPaymentMethod {
-  // | Some(pm) => pm.card->Option.map(card => card.card_network)->Option.getOr("")
-  // | None => ""
-  // }
-
-  // let requiresCvv = switch lastUsedCardPaymentMethod {
-  // | Some(pm) => pm.requires_cvv
-  // | None => false
-  // }
-
-  // TODO: Add cardBrand prop later so CVC length can be brand-aware
-  // (e.g. Amex = 4, others = 3). For now, accept 3 or 4 digits.
   let cardNetwork = ""
-
-  let requiresCvv = true
 
   let isCvcValid =
     cvcValue->String.length === 0 ? true : Validation.cvcNumberInRange(cvcValue, cardNetwork)
 
-  // let isCvcComplete = Validation.checkCardCVC(cvcValue, cardNetwork)
-
   let isCvcEmpty = cvcValue->String.length === 0
+
+  let isCvcComplete = Validation.checkCardCVC(cvcValue, cardNetwork)
 
   let onCvcChange = cvc => {
     let formatted = Validation.formatCVCNumber(cvc, cardNetwork)
@@ -90,21 +31,15 @@ let make = () => {
   let emitCvcStatusEvent = (~focused: bool, ~blur: bool) => {
     emitter.emitCvcStatus(
       ~event={
-        isCvcFocused: focused,
-        isCvcBlur: blur,
+        isCvcFocused: Some(focused),
+        isCvcBlur: Some(blur),
         isCvcEmpty,
+        isCvcComplete,
       },
     )
   }
 
-  // HyperHeadless module — needed only for exitHeadless after confirm
   let headlessModule = HeadlessCommon.makeHeadlessModule()
-
-  // Keep the ref in sync with the latest context value on every re-render.
-  React.useEffect1(() => {
-    customerPaymentMethodDataRef.current = customerPaymentMethodData
-    None
-  }, [customerPaymentMethodData])
 
   React.useEffect0(() => {
     setLoading(LoadingContext.FillingDetails)
@@ -113,105 +48,94 @@ let make = () => {
     ) => {
       switch actionData.actionType {
       | ConfirmCvcPayment =>
-        if actionData.rootTag !== nativeProp.rootTag {
-          ()
-        } else {
-          let paymentToken = actionData.paymentToken->Option.getOr("")
-          let paymentMethodId = actionData.paymentMethodId->Option.getOr("")
-
-          let billing =
-            customerPaymentMethodDataRef.current
-            ->Option.flatMap(
-              cpmd => {
-                cpmd.customer_payment_methods->Array.find(
-                  pm => pm.payment_method_id == paymentMethodId,
-                )
-              },
+        if actionData.rootTag === nativeProp.rootTag {
+          let isCvcCompleteNow = Validation.checkCardCVC(cvcValueRef.current, cardNetwork)
+          if !isCvcCompleteNow {
+            let cvcValidationError: PaymentConfirmTypes.error = {
+              type_: "validation_error",
+              status: "failed",
+              code: "cvc_validation_failed",
+              message: "CVC is not complete. Please enter a valid CVC.",
+            }
+            headlessModule.exitHeadless(
+              nativeProp.rootTag,
+              cvcValidationError->HyperModule.resStatusPayload,
             )
-            ->Option.flatMap(pm => pm.billing)
-            ->Option.map(Utils.getJsonObjectFromRecord)
-
-          let cvc = cvcValueRef.current->JSON.Encode.string
-
-          HeadlessCommon.confirmCardPayment(
-            headlessModule,
-            nativeProp,
-            ~paymentToken,
-            ~cvc,
-            ~billing?,
-          )
+          } else {
+            HeadlessCommon.confirmCardPayment(
+              headlessModule,
+              nativeProp,
+              ~sdkAuthorization=actionData.sdkAuthorization->Option.getOr(""),
+              ~paymentToken=actionData.paymentToken->Option.getOr(""),
+              ~cvc=cvcValueRef.current->JSON.Encode.string,
+              ~billing=?actionData.billing,
+            )
+          }
         }
       | _ => ()
       }
     })
 
-    Some(
-      () => {
-        cleanup()
-      },
-    )
+    Some(() => cleanup())
   })
 
   React.useEffect1(_ => {
     emitCvcStatusEvent(~focused=isFocused, ~blur=!isFocused)
     None
-  }, [isCvcEmpty])
+  }, [cvcValue])
 
-  if !requiresCvv {
-    <View style={s({height: 0.->dp})} />
-  } else {
-    <View
-      style={s({
-        width: 100.->pct,
-        flex: 1.,
-        backgroundColor: "transparent",
-        justifyContent: #center,
-      })}>
-      <CustomInput
-        state={cvcValue}
-        setState={onCvcChange}
-        placeholder={nativeProp.configuration.placeholder.cvv}
-        animateLabel={localeObject.cvcTextLabel}
-        keyboardType=#"number-pad"
-        enableCrossIcon=false
-        maxLength=Some(4)
-        isValid={isCvcValid}
-        secureTextEntry=true
-        borderTopLeftRadius=borderRadius
-        borderTopRightRadius=borderRadius
-        borderBottomLeftRadius=borderRadius
-        borderBottomRightRadius=borderRadius
-        borderTopWidth=borderWidth
-        borderBottomWidth=borderWidth
-        borderLeftWidth=borderWidth
-        borderRightWidth=borderWidth
-        textColor={isCvcValid ? component.color : dangerColor}
-        onFocus={() => {
-          setIsFocused(_ => true)
-          emitCvcStatusEvent(~focused=true, ~blur=false)
-        }}
-        onBlur={() => {
-          setIsFocused(_ => false)
-          emitCvcStatusEvent(~focused=false, ~blur=true)
-        }}
-        iconRight=CustomIcon(
-          <View
-            style={s({
-              height: 46.->dp,
-              display: #flex,
-              flexDirection: #row,
-              justifyContent: #center,
-              alignItems: #center,
-            })}>
-            <Icon
-              name="cvv"
-              height=32.
-              width=32.
-              fill={Validation.checkCardCVC(cvcValue, cardNetwork) ? primaryColor : "#858F97"}
-            />
-          </View>,
-        )
-      />
-    </View>
-  }
+  <View
+    style={s({
+      width: 100.->pct,
+      flex: 1.,
+      backgroundColor: "transparent",
+      justifyContent: #center,
+      padding: 2.->dp,
+    })}>
+    <CustomInput
+      state={cvcValue}
+      setState={onCvcChange}
+      placeholder={nativeProp.configuration.placeholder.cvv->Option.getOr(
+        localeObject.cvcTextLabel,
+      )}
+      animateLabel={localeObject.cvcTextLabel}
+      keyboardType=#"number-pad"
+      enableCrossIcon=false
+      maxLength=Some(4)
+      isValid={isCvcValid}
+      secureTextEntry=true
+      textColor={isCvcValid ? component.color : dangerColor}
+      onFocus={() => {
+        setIsFocused(_ => true)
+        emitCvcStatusEvent(~focused=true, ~blur=false)
+      }}
+      onBlur={() => {
+        setIsFocused(_ => false)
+        emitCvcStatusEvent(~focused=false, ~blur=true)
+      }}
+      iconRight=?{nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.cvcIcon ===
+        Hidden
+        ? None
+        : Some(
+            CustomIcon(
+              <View
+                style={s({
+                  height: 46.->dp,
+                  display: #flex,
+                  flexDirection: #row,
+                  justifyContent: #center,
+                  alignItems: #center,
+                })}>
+                <Icon
+                  name="cvv"
+                  height=32.
+                  width=32.
+                  fill={Validation.checkCardCVC(cvcValue, cardNetwork) ? primaryColor : "#858F97"}
+                />
+              </View>,
+            ),
+          )}
+    />
+    <Space height=2. />
+  </View>
 }

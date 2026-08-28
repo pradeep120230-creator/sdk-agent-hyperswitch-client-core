@@ -2,21 +2,23 @@ type methodType = TAB | ELEMENT | WIDGET
 
 @react.component
 let make = (
-  ~paymentMethodData: AccountPaymentMethodType.payment_method_type,
+  ~paymentMethodData: ClientResponseType.paymentMethodEnabled,
   ~isScreenFocus: bool=false,
   ~setConfirmButtonData=_ => (),
   ~sessionObject: SessionsType.sessions=SessionsType.defaultToken,
   ~methodType=TAB,
 ) => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
-  let (accountPaymentMethodData, customerPaymentMethodData, _) = React.useContext(
+  let (clientData, _, _) = React.useContext(
     AllApiDataContextNew.allApiDataContext,
   )
   let (viewPortContants, _) = React.useContext(ViewportContext.viewPortContext)
   let (_, setLoading) = React.useContext(LoadingContext.loadingContext)
   let redirectHook = AllPaymentHooks.useRedirectHook()
   let handleSuccessFailure = AllPaymentHooks.useHandleSuccessFailure()
-  let {nickname, isNicknameSelected, setEligibilityStatus} = React.useContext(DynamicFieldsContext.dynamicFieldsContext)
+  let {nickname, isNicknameSelected, setEligibilityStatus} = React.useContext(
+    DynamicFieldsContext.dynamicFieldsContext,
+  )
 
   let callEligibilityCheck = AllPaymentHooks.useEligibilityCheckHook()
 
@@ -25,8 +27,8 @@ let make = (
     | None => setEligibilityStatus(_ => Allowed)
     | Some(cardNumber) =>
       let shouldCheck =
-        accountPaymentMethodData
-        ->Option.flatMap(d => d.sdk_next_action)
+        clientData
+        ->Option.flatMap(d => d.sdk_next_action.next_action)
         ->Option.mapOr(false, action => action == "eligibility_check")
 
       if shouldCheck {
@@ -101,7 +103,27 @@ let make = (
       }
     }
 
-    let (paymentMethodDataDict, tabDict) = switch paymentMethodData.payment_method {
+    let getExperienceSuffix = (experiences: array<ClientResponseType.paymentExperience>) => {
+      let hasSDKFlow =
+        experiences->Array.some(exp => exp.payment_experience_type_decode == INVOKE_SDK_CLIENT)
+
+      let hasRedirectFlow =
+        experiences->Array.some(exp => exp.payment_experience_type_decode == REDIRECT_TO_URL)
+
+      if hasSDKFlow {
+        "_sdk"
+      } else if hasRedirectFlow {
+        "_redirect"
+      } else {
+        ""
+      }
+    }
+
+    let (
+      paymentMethodDataDict,
+      tabDict,
+      paymentMethodStr,
+    ) = switch paymentMethodData.payment_method {
     | CARD =>
       switch nickname {
       | Some(name) => (
@@ -119,16 +141,27 @@ let make = (
             ),
           ]->Dict.fromArray,
           tabDict,
+          paymentMethodData.payment_method_str,
         )
-      | None => (Dict.make(), tabDict)
+      | None => (Dict.make(), tabDict, paymentMethodData.payment_method_str)
       }
     | REWARD => (
         [
           ("payment_method_data", paymentMethodData.payment_method_str->Js.Json.string),
         ]->Dict.fromArray,
         Dict.make(),
+        paymentMethodData.payment_method_str,
       )
-    | pm => (
+    | pm =>
+      let suffix = if pm === PAY_LATER || paymentMethodData.payment_method_type_wallet === PAYPAL {
+        paymentMethodData.payment_experience->getExperienceSuffix
+      } else if paymentMethodData.payment_method_type === "cashapp" {
+        "_qr"
+      } else {
+        ""
+      }
+
+      (
         [
           (
             "payment_method_data",
@@ -137,10 +170,7 @@ let make = (
                 paymentMethodData.payment_method_str,
                 [
                   (
-                    paymentMethodData.payment_method_type ++
-                    (pm === PAY_LATER || paymentMethodData.payment_method_type_wallet === PAYPAL
-                      ? "_redirect"
-                      : "") ++ (paymentMethodData.payment_method_type === "cashapp" ? "_qr" : ""),
+                    paymentMethodData.payment_method_type ++ suffix,
                     walletDict->Option.getOr(Dict.make())->Js.Json.object_,
                   ),
                 ]
@@ -153,31 +183,32 @@ let make = (
           ),
         ]->Dict.fromArray,
         tabDict,
+        paymentMethodData.payment_method_str,
       )
     }
 
     let body = PaymentUtils.generateCardConfirmBody(
       ~nativeProp,
-      ~payment_method_str=paymentMethodData.payment_method_str,
+      ~payment_method_str=paymentMethodStr,
       ~payment_method_type=paymentMethodData.payment_method_type,
       ~payment_method_data=?CommonUtils.mergeDict(paymentMethodDataDict, tabDict)->Dict.get(
         "payment_method_data",
       ),
-      ~payment_type=accountPaymentMethodData
-      ->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type)
+      ~payment_type=clientData
+      ->Option.map(data => data.intent_data.payment_type)
       ->Option.getOr(NORMAL),
-      ~payment_type_str=?accountPaymentMethodData->Option.map(accountPaymentMethods => accountPaymentMethods.payment_type_str)->Option.getOr(None),
+      ~payment_type_str=?clientData
+      ->Option.map(data => data.intent_data.payment_type_str)
+      ->Option.getOr(None),
       ~appURL=?{
-        accountPaymentMethodData->Option.map(accountPaymentMethods =>
-          accountPaymentMethods.redirect_url
-        )
+        clientData->Option.map(data => data.intent_data.return_url)
       },
       ~isSaveCardCheckboxVisible={
         paymentMethodData.payment_method === CARD &&
           nativeProp.configuration.displaySavedPaymentMethodsCheckbox
       },
-      ~isGuestCustomer=customerPaymentMethodData
-      ->Option.map(customerPaymentMethods => customerPaymentMethods.is_guest_customer)
+      ~isGuestCustomer=clientData
+      ->Option.map(data => data.intent_data.is_guest_customer)
       ->Option.getOr(true),
       ~isNicknameSelected,
       ~email?,
@@ -188,8 +219,8 @@ let make = (
 
     redirectHook(
       ~body=body->JSON.stringifyAny->Option.getOr(""),
-      ~publishableKey=nativeProp.publishableKey,
-      ~clientSecret=nativeProp.clientSecret,
+      ~publishableKey=nativeProp.hyperswitchConfig.publishableKey,
+      ~clientSecret=nativeProp.paymentSessionConfig.clientSecret,
       ~errorCallback,
       ~responseCallback,
       ~paymentMethod=paymentMethodData.payment_method_type,
@@ -202,8 +233,28 @@ let make = (
   <ErrorBoundary level={FallBackScreen.Screen} rootTag=nativeProp.rootTag>
     {switch methodType {
     | ELEMENT => <ButtonElement paymentMethodData processRequest sessionObject />
-    | TAB => <TabElement paymentMethodData processRequest checkEligibility isScreenFocus setConfirmButtonData />
+    | TAB =>
+      <TabElement
+        paymentMethodData processRequest checkEligibility isScreenFocus setConfirmButtonData
+      />
     | _ => React.null
+    }}
+    {switch nativeProp.configuration.paymentMethodsConfig->Array.find(paymentMethodConfig => {
+      paymentMethodConfig.paymentMethod == paymentMethodData.payment_method_str
+    }) {
+    | Some(config) =>
+      switch config.message.value {
+      | Some(text) =>
+        <UIUtils.RenderIf condition={text != ""}>
+          <TextWrapper
+            text
+            textType={ModalTextBold}
+            overrideStyle=Some(ReactNative.Style.s({marginBottom: 15.->ReactNative.Style.dp}))
+          />
+        </UIUtils.RenderIf>
+      | None => React.null
+      }
+    | None => React.null
     }}
   </ErrorBoundary>
 }

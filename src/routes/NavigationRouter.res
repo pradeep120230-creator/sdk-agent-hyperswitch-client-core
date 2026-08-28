@@ -2,13 +2,13 @@
 let make = () => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
 
-  let accountPaymentMethods = AllPaymentHooks.usePaymentMethodHook()
-  let customerPaymentMethods = AllPaymentHooks.usePaymentMethodHook(~customerLevel=true)
   let sessionToken = AllPaymentHooks.useSessionTokenHook()
+  let sdkConfig = AllPaymentHooks.useSdkConfigHook()
+  let fetchClientData = AllPaymentHooks.useFetchClientData()
 
-  let (accountPaymentMethodData, setAccountPaymentMethodData) = React.useState(_ => None)
-  let (customerPaymentMethodData, setCustomerPaymentMethodData) = React.useState(_ => None)
+  let (clientResponse, setClientResponse) = React.useState(_ => None)
   let (sessionTokenData, setSessionTokenData) = React.useState(_ => None)
+  let (sdkConfigData, setSdkConfigData) = React.useState(_ => None)
 
   let handleSuccessFailure = AllPaymentHooks.useHandleSuccessFailure()
   let (loading, _) = React.useContext(LoadingContext.loadingContext)
@@ -16,99 +16,175 @@ let make = () => {
   let errorOnApiCalls = ErrorHooks.useShowErrorOrWarning()
   let logger = LoggerHook.useLoggerHook()
 
+  let isDismissableSheet = switch nativeProp.sdkState {
+  | PaymentSheet
+  | TabSheet
+  | ButtonSheet
+  | HostedCheckout
+  | WidgetPaymentSheet
+  | WidgetTabSheet
+  | WidgetButtonSheet => true
+  | _ => false
+  }
+
   React.useEffect1(() => {
-    let launchTime = nativeProp.hyperParams.launchTime->Option.getOr(Date.now())
+    let launchTime = nativeProp.sdkParams.launchTime->Option.getOr(Date.now())
     let latency = Date.now() -. launchTime
-    let appId = nativeProp.hyperParams.appId->Option.getOr("") ++ ".hyperswitch://"
+    let appId = nativeProp.sdkParams.appId->Option.getOr("") ++ ".hyperswitch://"
     logger(~logType=INFO, ~value=appId, ~category=USER_EVENT, ~eventName=APP_RENDERED, ~latency, ())
     error()
+    None
+  }, [nativeProp])
 
-    //KountModule.launchKountIfAvailable(nativeProp.clientSecret, _x => ())
-    if (
-      (nativeProp.clientSecret != "" || nativeProp.paymentMethodId != "") &&
-        nativeProp.publishableKey != ""
-    ) {
-      let handleAccountPaymentMethodsResponse = accountPaymentMethodData => {
-        if ErrorUtils.isError(accountPaymentMethodData) {
-          errorOnApiCalls(
-            INVALID_PK((Error, Static(ErrorUtils.getErrorMessage(accountPaymentMethodData)))),
-            (),
-          )
-        } else if accountPaymentMethodData == JSON.Encode.null {
-          handleSuccessFailure(~apiResStatus=PaymentConfirmTypes.defaultConfirmError, ())
-        } else {
-          let pmlResponse = AccountPaymentMethodType.jsonToAccountPaymentMethodType(
-            accountPaymentMethodData,
-          )
-          if pmlResponse.payment_methods->Array.length === 0 {
-            errorOnApiCalls(ErrorUtils.errorWarning.noPMLData, ())
+  let sessionCredentialsKey = PaymentUtils.getSessionCredentialsKey(nativeProp)
+  let fetchedCredentialsKey = React.useRef(None)
+
+  React.useEffect1(() => {
+    //KountModule.launchKountIfAvailable(nativeProp.paymentSessionConfig.clientSecret, _x => ())
+    let alreadyFetched = switch fetchedCredentialsKey.current {
+    | Some(key) => key === sessionCredentialsKey
+    | None => false
+    }
+    if nativeProp.sdkState !== CvcWidget && !alreadyFetched {
+      fetchedCredentialsKey.current = Some(sessionCredentialsKey)
+      let requestKey = sessionCredentialsKey
+
+      let isRequestCurrent = () =>
+        switch fetchedCredentialsKey.current {
+        | Some(key) => key === requestKey
+        | None => false
+        }
+
+      let terminalErrorFired = ref(false)
+      let exitSheetOnce = (~apiResStatus) =>
+        if !terminalErrorFired.contents {
+          terminalErrorFired := true
+          handleSuccessFailure(~apiResStatus, ())
+        }
+
+      let handleClientResponse = clientResp => {
+        if ErrorUtils.isError(clientResp) {
+          if isDismissableSheet {
+            exitSheetOnce(
+              ~apiResStatus={
+                type_: "",
+                status: "failed",
+                code: "client_api_error",
+                message: ErrorUtils.getErrorMessage(clientResp),
+              },
+            )
           } else {
-            setAccountPaymentMethodData(_ => Some(pmlResponse))
+            errorOnApiCalls(
+              INVALID_PK((Error, Static(ErrorUtils.getErrorMessage(clientResp)))),
+              (),
+            )
+          }
+        } else if clientResp == JSON.Encode.null {
+          exitSheetOnce(~apiResStatus=PaymentConfirmTypes.defaultConfirmError)
+        } else {
+          // Both lists now arrive in ONE response, so an empty payment_methods_enabled
+          // must not discard the customer's saved methods carried alongside it. Either
+          // list alone is enough to render — same rule as CustomAccordionView's hasData.
+          let dict = clientResp->Utils.getDictFromJson
+          let hasEnabledMethods = dict->Utils.getArray("payment_methods_enabled")->Array.length > 0
+          let hasSavedMethods = dict->Utils.getArray("customer_payment_methods")->Array.length > 0
+          if hasEnabledMethods || hasSavedMethods {
+            setClientResponse(_ => Some(clientResp))
+          } else if isDismissableSheet {
+            exitSheetOnce(~apiResStatus=PaymentConfirmTypes.defaultNoPaymentMethodsError)
+          } else {
+            errorOnApiCalls(ErrorUtils.errorWarning.noPMLData, ())
           }
         }
       }
 
-      let handleCustomerPaymentMethodsResponse = customerPaymentMethodData => {
-        setCustomerPaymentMethodData(_ => Some(
-          CustomerPaymentMethodType.jsonToCustomerPaymentMethodType(customerPaymentMethodData),
-        ))
-      }
-
-      if nativeProp.configuration.enablePartialLoading {
-        customerPaymentMethods()
-        ->Promise.then(customerPaymentMethodData => {
-          handleCustomerPaymentMethodsResponse(customerPaymentMethodData)
-          Promise.resolve()
-        })
-        ->ignore
-
-        accountPaymentMethods()
-        ->Promise.then(accountPaymentMethodData => {
-          handleAccountPaymentMethodsResponse(accountPaymentMethodData)
-          Promise.resolve()
-        })
-        ->ignore
-      } else {
-        Promise.all2((customerPaymentMethods(), accountPaymentMethods()))
-        ->Promise.then(((customerPaymentMethodData, accountPaymentMethodData)) => {
-          handleCustomerPaymentMethodsResponse(customerPaymentMethodData)
-          handleAccountPaymentMethodsResponse(accountPaymentMethodData)
-          Promise.resolve()
-        })
-        ->ignore
+      let handleSdkConfigResponse = configResponse => {
+        if ErrorUtils.isError(configResponse) {
+          // sdk_config now supplies payment_experience + required fields, so a
+          // config failure means the sheet cannot render/confirm correctly.
+          // Treat it as terminal (like the null/invalid cases below) instead of a
+          // non-blocking alert — otherwise the config-gated memo strands the UI.
+          exitSheetOnce(~apiResStatus=PaymentConfirmTypes.defaultConfigError)
+        } else if configResponse == JSON.Encode.null {
+          exitSheetOnce(~apiResStatus=PaymentConfirmTypes.defaultConfigError)
+        } else {
+          let parsed = SdkConfigParser.itemToObjMapper(configResponse)
+          if PaymentUtils.isValidSdkConfig(parsed) {
+            setSdkConfigData(_ => Some(parsed))
+          } else {
+            exitSheetOnce(~apiResStatus=PaymentConfirmTypes.defaultConfigError)
+          }
+        }
       }
 
       sessionToken()
       ->Promise.then(sessionTokenData => {
-        if sessionTokenData->ErrorUtils.isError {
-          if sessionTokenData->ErrorUtils.getErrorCode == "\"IR_16\"" {
-            errorOnApiCalls(ErrorUtils.errorWarning.usedCL, ())
-          } else if sessionTokenData->ErrorUtils.getErrorCode == "\"IR_09\"" {
-            errorOnApiCalls(ErrorUtils.errorWarning.invalidCL, ())
+        if isRequestCurrent() {
+          if sessionTokenData->ErrorUtils.isError {
+            if sessionTokenData->ErrorUtils.getErrorCode == "\"IR_16\"" {
+              errorOnApiCalls(ErrorUtils.errorWarning.usedCL, ())
+            } else if sessionTokenData->ErrorUtils.getErrorCode == "\"IR_09\"" {
+              errorOnApiCalls(ErrorUtils.errorWarning.invalidCL, ())
+            }
+          } else if sessionTokenData != JSON.Null {
+            switch sessionTokenData->SessionsType.jsonToSessionTokenType {
+            | Some(sessions) => setSessionTokenData(_ => Some(sessions))
+            | None => setSessionTokenData(_ => Some([]))
+            }
           }
-        } else if sessionTokenData != JSON.Null {
-          switch sessionTokenData->SessionsType.jsonToSessionTokenType {
-          | Some(sessions) => setSessionTokenData(_ => Some(sessions))
-          | None => setSessionTokenData(_ => Some([]))
-          }
+        }
+        Promise.resolve()
+      })
+      ->ignore
+
+      sdkConfig()
+      ->Promise.then(configResponse => {
+        if isRequestCurrent() {
+          handleSdkConfigResponse(configResponse)
+        }
+        Promise.resolve()
+      })
+      ->ignore
+
+      fetchClientData()
+      ->Promise.then(clientResp => {
+        if isRequestCurrent() {
+          handleClientResponse(clientResp)
         }
         Promise.resolve()
       })
       ->ignore
     }
     None
-  }, [nativeProp])
+  }, [sessionCredentialsKey])
+
+  let paymentMethodOrder = nativeProp.configuration.paymentMethodOrder
+  let hiddenPaymentMethods = nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.hiddenPaymentMethods
+  let clientData = React.useMemo4(() => {
+    switch (clientResponse, sdkConfigData) {
+    | (Some(clientResp), Some(cfg)) =>
+      Some(
+        ClientResponseType.parseClientResponse(
+          clientResp,
+          cfg,
+          paymentMethodOrder,
+          hiddenPaymentMethods,
+        ),
+      )
+    | _ => None
+    }
+  }, (clientResponse, sdkConfigData, paymentMethodOrder, hiddenPaymentMethods))
 
   BackHandlerHook.useBackHandler(~loading, ~sdkState=nativeProp.sdkState)
-  ConfigurationService.useConfigurationService()->ignore
 
   UpdateIntentHook.useUpdateIntentListener(
-    ~setAccountPaymentMethodData,
-    ~setCustomerPaymentMethodData,
+    ~setClientResponse,
     ~setSessionTokenData,
+    ~setSdkConfigData,
+    ~fetchedCredentialsKey,
   )
 
-  <AllApiDataContextNew accountPaymentMethodData customerPaymentMethodData sessionTokenData>
+  <AllApiDataContextNew clientData sessionTokenData sdkConfigData>
     // TODO: Pass DynamicFieldsContext to only required components.
     // GO to NavigatorRouter.res and wrap only the components which require DynamicFieldsContext.
     <DynamicFieldsContext>

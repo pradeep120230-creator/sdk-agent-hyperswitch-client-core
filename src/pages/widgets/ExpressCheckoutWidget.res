@@ -7,7 +7,9 @@ open LoggerTypes
 let make = () => {
   let handleSuccessFailure = AllPaymentHooks.useHandleSuccessFailure()
   let (nativeProp, setNativeProp) = React.useContext(NativePropContext.nativePropContext)
-  let (_, customerPaymentMethodData, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
+  let (clientData, _, _) = React.useContext(
+    AllApiDataContextNew.allApiDataContext,
+  )
   let (_, setLoading) = React.useContext(LoadingContext.loadingContext)
   let (confirm, setConfirm) = React.useState(_ => false)
   let (savedCardCvv, setSavedCardCvv) = React.useState(_ => None)
@@ -46,9 +48,7 @@ let make = () => {
 
   let firstPaymentMethod = {
     let pmList =
-      customerPaymentMethodData->Option.map(customerPaymentMethods =>
-        customerPaymentMethods.customer_payment_methods
-      )
+      clientData->Option.map(data => data.customer_payment_methods)
     let platform = ReactNative.Platform.os
 
     pmList
@@ -167,11 +167,11 @@ let make = () => {
     }
 
     let body: PaymentConfirmTypes.redirectType = {
-      client_secret: ?switch nativeProp.sdkAuthorization->Utils.getNonEmptyOption {
+      client_secret: ?switch nativeProp.paymentSessionConfig.sdkAuthorization->Utils.getNonEmptyOption {
       | Some(_) => None
-      | None => Some(nativeProp.clientSecret)
+      | None => Some(nativeProp.paymentSessionConfig.clientSecret)
       },
-      return_url: ?Utils.getReturnUrl(~appId=nativeProp.hyperParams.appId),
+      return_url: ?Utils.getReturnUrl(~appId=nativeProp.sdkParams.appId),
       ?email,
       payment_method,
       payment_method_type,
@@ -186,7 +186,7 @@ let make = () => {
             acceptance_type: "online",
             accepted_at: Date.now()->Date.fromTime->Date.toISOString,
             online: {
-              user_agent: ?nativeProp.hyperParams.userAgent,
+              user_agent: ?nativeProp.sdkParams.userAgent,
             },
           })
         } else {
@@ -194,17 +194,17 @@ let make = () => {
         }
       ),
       browser_info: {
-        user_agent: ?nativeProp.hyperParams.userAgent,
-        device_model: ?nativeProp.hyperParams.device_model,
-        os_type: ?nativeProp.hyperParams.os_type,
-        os_version: ?nativeProp.hyperParams.os_version,
+        user_agent: ?nativeProp.sdkParams.userAgent,
+        device_model: ?nativeProp.sdkParams.device_model,
+        os_type: ?nativeProp.sdkParams.os_type,
+        os_version: ?nativeProp.sdkParams.os_version,
       },
     }
 
     fetchAndRedirect(
       ~body=body->JSON.stringifyAny->Option.getOr(""),
-      ~publishableKey=nativeProp.publishableKey,
-      ~clientSecret=nativeProp.clientSecret,
+      ~publishableKey=nativeProp.hyperswitchConfig.publishableKey,
+      ~clientSecret=nativeProp.paymentSessionConfig.clientSecret,
       ~errorCallback,
       ~responseCallback,
       ~paymentMethod=payment_method_type,
@@ -263,20 +263,31 @@ let make = () => {
   }
 
   React.useEffect1(() => {
-    if nativeProp.publishableKey == "" {
+    if nativeProp.hyperswitchConfig.publishableKey == "" {
       setLoading(ProcessingPayments)
     }
 
     let handleExpressCheckoutConfirm = (responseFromJava: PaymentConfirmTypes.responseFromJava) => {
       setNativeProp({
         ...nativeProp,
-        publishableKey: responseFromJava.publishableKey,
-        clientSecret: responseFromJava.clientSecret,
+        hyperswitchConfig: {
+          ...nativeProp.hyperswitchConfig,
+          publishableKey: responseFromJava.publishableKey,
+        },
+        paymentSessionConfig: {
+          ...nativeProp.paymentSessionConfig,
+          clientSecret: responseFromJava.clientSecret,
+          paymentId: responseFromJava.clientSecret
+          ->String.split("_secret_")
+          ->Array.get(0)
+          ->Option.getOr(""),
+        },
         configuration: {
           ...nativeProp.configuration,
-          appearance: {
-            ...nativeProp.configuration.appearance,
+          walletButtons: {
+            ...nativeProp.configuration.walletButtons,
             googlePay: {
+              visibility: Shown,
               buttonType: PLAIN,
               buttonStyle: None,
             },
@@ -296,7 +307,7 @@ let make = () => {
     )
 
     Some(cleanup)
-  }, [nativeProp.publishableKey])
+  }, [nativeProp.hyperswitchConfig.publishableKey])
 
   React.useEffect1(_ => {
     if confirm {
@@ -361,7 +372,16 @@ let make = () => {
     {switch firstPaymentMethod {
     | Some(pm) =>
       pm.requires_cvv
-        ? <SavedPaymentMethod.CVVComponent savedCardCvv setSavedCardCvv cardScheme />
+        ? <SavedPaymentMethod.CVVComponent
+            savedCardCvv
+            setSavedCardCvv
+            cardScheme
+            hideCardExpiry=nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.hideCardExpiry
+            hideCVCError=nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.hideCVCError
+            hideCvcIcon={nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.cvcIcon ===
+              Hidden}
+            placeholderCVC={nativeProp.configuration.placeholder.cvv}
+          />
         : React.null
     | _ => React.null
     }}

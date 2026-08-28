@@ -9,10 +9,10 @@ type iconType =
 let make = (
   ~state,
   ~setState,
-  ~placeholder="Enter the text here",
+  ~placeholder,
   ~placeholderTextColor=None,
   ~width=100.->pct,
-  ~height: float=46.,
+  ~height=?,
   ~secureTextEntry=false,
   ~keyboardType=#default,
   ~iconLeft: iconType=NoIcon,
@@ -30,14 +30,14 @@ let make = (
   ~onPressIconRight=?,
   ~isValid=true,
   ~showEyeIconaftersecureTextEntry=false,
-  ~borderTopWidth=1.,
-  ~borderBottomWidth=1.,
-  ~borderLeftWidth=1.,
-  ~borderRightWidth=1.,
-  ~borderTopLeftRadius=7.,
-  ~borderTopRightRadius=7.,
-  ~borderBottomLeftRadius=7.,
-  ~borderBottomRightRadius=7.,
+  ~borderTopWidth=?,
+  ~borderBottomWidth=?,
+  ~borderLeftWidth=?,
+  ~borderRightWidth=?,
+  ~borderTopLeftRadius=?,
+  ~borderTopRightRadius=?,
+  ~borderBottomLeftRadius=?,
+  ~borderBottomRightRadius=?,
   ~onFocus=() => (),
   ~onBlur=() => (),
   ~textColor="black",
@@ -52,18 +52,22 @@ let make = (
   ~accessible=?,
 ) => {
   let {
+    borderWidth,
+    borderRadius,
     placeholderColor,
     bgColor,
     primaryColor,
     errorTextInputColor,
     normalTextInputBoderColor,
     component,
-    shadowColor,
-    shadowIntensity,
+    shadowConfig,
     placeholderTextSizeAdjust,
     fontScale,
+    inputHeight,
   } = ThemebasedStyle.useThemeBasedStyle()
-  let getShadowStyle = ShadowHook.useGetShadowStyle(~shadowIntensity, ~shadowColor, ())
+
+  let inputHeight = height->Option.getOr(inputHeight)
+  let getShadowStyle = ShadowHook.useGetShadowStyle(~shadowConfig, ())
 
   let (showPass, setShowPass) = React.useState(_ => secureTextEntry)
   let (isFocused, setIsFocused) = React.useState(_ => false)
@@ -73,6 +77,7 @@ let make = (
   let shadowStyle = enableShadow ? getShadowStyle : empty
 
   let animatedValue = AnimatedValue.useAnimatedValue(0.)
+  let (loading, _) = React.useContext(LoadingContext.loadingContext)
 
   React.useEffect1(() => {
     animatedValue->Animated.Value.setValue(state === "" ? 0. : 1.)
@@ -96,7 +101,7 @@ let make = (
     None
   }, (isFocused, state))
 
-  <View style={style->Option.getOr(s({width: 100.->pct}))}>
+  <View style={style->Option.getOr(s({width: width}))}>
     {heading != ""
       ? <TextWrapper textType={PlaceholderText}>
           {React.string(heading)}
@@ -110,15 +115,15 @@ let make = (
         bgColor,
         s({
           backgroundColor: component.background,
-          borderTopWidth,
-          borderBottomWidth,
-          borderLeftWidth,
-          borderRightWidth,
-          borderTopLeftRadius,
-          borderTopRightRadius,
-          borderBottomLeftRadius,
-          borderBottomRightRadius,
-          height: height->dp,
+          borderTopWidth: borderTopWidth->Option.getOr(borderWidth),
+          borderBottomWidth: borderBottomWidth->Option.getOr(borderWidth),
+          borderLeftWidth: borderLeftWidth->Option.getOr(borderWidth),
+          borderRightWidth: borderRightWidth->Option.getOr(borderWidth),
+          borderTopLeftRadius: borderTopLeftRadius->Option.getOr(borderRadius),
+          borderTopRightRadius: borderTopRightRadius->Option.getOr(borderRadius),
+          borderBottomLeftRadius: borderBottomLeftRadius->Option.getOr(borderRadius),
+          borderBottomRightRadius: borderBottomRightRadius->Option.getOr(borderRadius),
+          height: inputHeight->dp,
           flexDirection: #row,
           borderColor: isValid
             ? isFocused ? primaryColor : normalTextInputBoderColor
@@ -151,7 +156,10 @@ let make = (
                 height: animatedValue
                 ->Animated.Interpolation.interpolate({
                   inputRange: [0., 1.],
-                  outputRange: ["100%", "40%"]->Animated.Interpolation.fromStringArray,
+                  outputRange: [
+                    "100%",
+                    `${((inputHeight +. 10.) /. 1.4)->Float.toString}%`,
+                  ]->Animated.Interpolation.fromStringArray,
                 })
                 ->Animated.StyleProp.size,
                 justifyContent: #center,
@@ -189,11 +197,17 @@ let make = (
             s({
               fontStyle: #normal,
               color: textColor,
+              opacity: {
+                switch loading {
+                | ProcessingPayments | ProcessingPaymentsWithOverlay => 0.5
+                | _ => 1.
+                }
+              },
               fontFamily,
               fontSize: (fontSize +. placeholderTextSizeAdjust) *. fontScale,
               ?textAlign,
             }),
-            s({padding: 0.->dp, height: (height -. 10.)->dp, width: 100.->pct}),
+            s({padding: 0.->dp, height: (inputHeight *. 0.7)->dp, width: 100.->pct}),
           ])}
           testID=name
           secureTextEntry=showPass

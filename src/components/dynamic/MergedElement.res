@@ -8,12 +8,21 @@ let make = (
   ~formatValue as _,
   ~accessible=?,
 ) => {
-  let {component, dangerColor} = ThemebasedStyle.useThemeBasedStyle()
+  let {component, dangerColor, gap} = ThemebasedStyle.useThemeBasedStyle()
+  let localeObject = GetLocale.useGetLocalObj()
+  let getLocalized = key => GetLocale.lookupLocaleString(localeObject, key)
 
-  let fieldData = fields->Array.map(fieldConfig => {
+  let emailFields = fields->Array.filter((f: SuperpositionTypes.fieldConfig) =>
+    switch f.fieldRenderType {
+    | Email => true
+    | _ => false
+    }
+  )
+
+  let fieldData = emailFields->Array.map(fieldConfig => {
     let {input, meta} = ReactFinalForm.useField(
-      fieldConfig.outputPath,
-      ~config={validate: createFieldValidator(Validation.Email)}
+      fieldConfig.confirmRequestWritePath,
+      ~config={validate: createFieldValidator(Validation.Email)},
     )
     (input, meta)
   })
@@ -23,7 +32,7 @@ let make = (
   switch fieldData->Array.get(0) {
   | Some((input, meta)) =>
     <React.Fragment>
-      <View style={s({marginBottom: 16.->dp})}>
+      <View style={s({marginBottom: gap->dp})}>
         {
           let handleInputChange = (value: string) => {
             onChangeArray->Array.forEach(onChange => {
@@ -34,7 +43,10 @@ let make = (
             <CustomInput
               state={input.value->Option.getOr("")}
               setState=handleInputChange
-              placeholder={GetLocale.getLocalString("Email")}
+              placeholder={emailFields
+              ->Array.get(0)
+              ->Option.map(f => FieldLabelResolver.resolvePlaceholder(f, getLocalized))
+              ->Option.getOr("Email")}
               enableCrossIcon=false
               isValid={meta.error->Option.isNone || !meta.touched || meta.active}
               onFocus={_ => {
