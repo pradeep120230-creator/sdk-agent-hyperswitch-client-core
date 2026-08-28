@@ -46,6 +46,26 @@ let make = (
 
   let (savedCardCvv, setSavedCardCvv) = React.useState(_ => None)
 
+  let (selectedInstallmentPlan, setSelectedInstallmentPlan) = React.useState(_ => None)
+  let setSelectedInstallmentPlan = React.useCallback1(plan => {
+    setSelectedInstallmentPlan(_ => plan)
+  }, [setSelectedInstallmentPlan])
+
+  let (showInstallments, setShowInstallments) = React.useState(_ => false)
+  let setShowInstallments = React.useCallback1(show => {
+    setShowInstallments(_ => show)
+  }, [setShowInstallments])
+
+  // The inline error under the installment block and the shared user facing error
+  // are cleared together, so picking a plan never leaves a stale message behind.
+  let (installmentsError, setInstallmentsError) = React.useState(_ => "")
+  let setInstallmentsError = React.useCallback1((error: string) => {
+    setInstallmentsError(_ => error)
+    if error === "" {
+      setErrorText(_ => None)
+    }
+  }, [setInstallmentsError])
+
   let (selectedToken, setSelectedToken) = React.useState(_ => customerPaymentMethods->Array.get(0))
   let setSelectedToken = React.useCallback1(token => {
     setSelectedToken(_ => token)
@@ -117,6 +137,12 @@ let make = (
         ~billing=token.billing,
         ~screen_height=viewPortContants.screenHeight,
         ~screen_width=viewPortContants.screenWidth,
+        // Installments are offered on saved cards only; every other saved method
+        // keeps the body it had before.
+        ~installment_data=?switch token.payment_method {
+        | CARD => PaymentUtils.installmentBody(selectedInstallmentPlan)
+        | _ => None
+        },
       )
     }
 
@@ -420,31 +446,42 @@ let make = (
     setLoading(FillingDetails)
   }
 
+  // Single source of truth for "is this saved method ready to be confirmed": the
+  // same value decides whether we submit, what we report to the host and which
+  // errors a blocked submit raises.
+  let isCvcComplete = switch selectedToken {
+  | Some(token) =>
+    switch token.payment_method {
+    | CARD =>
+      if token.requires_cvv {
+        switch savedCardCvv {
+        | Some(cvv) =>
+          cvv->String.length > 0 &&
+            Validation.cvcNumberInRange(
+              cvv,
+              token.card->Option.map(card => card.card_network)->Option.getOr(""),
+            )
+        | None => false
+        }
+      } else {
+        true
+      }
+    | _ => true
+    }
+  | None => false
+  }
+  let isInstallmentValid = !showInstallments || selectedInstallmentPlan->Option.isSome
+  let complete = isCvcComplete && isInstallmentValid
+
   let handlePress = _ => {
     switch (
       selectedToken,
-      !showDisclaimer ||
-      (showDisclaimer && (isSaveCardCheckboxSelected || savedCardCvv->Option.isNone)),
+      (!showDisclaimer ||
+      (showDisclaimer && (isSaveCardCheckboxSelected || savedCardCvv->Option.isNone))) && complete,
     ) {
     | (Some(token), true) =>
       switch token.payment_method {
-      | CARD =>
-        token.requires_cvv &&
-        (savedCardCvv->Option.isNone ||
-          !Validation.cvcNumberInRange(
-            savedCardCvv->Option.getOr(""),
-            token.card
-            ->Option.map(card => card.card_network)
-            ->Option.getOr(""),
-          ))
-          ? {
-              if savedCardCvv->Option.isNone {
-                setSavedCardCvv(_ => Some(""))
-              }
-              setLoading(FillingDetails)
-              notifyValidationFailure()
-            }
-          : processRequestSaved(token)
+      | CARD => processRequestSaved(token)
       | WALLET =>
         switch token.payment_method_type_wallet {
         | APPLE_PAY =>
@@ -566,6 +603,18 @@ let make = (
       if showDisclaimer && !isSaveCardCheckboxSelected {
         setErrorText(_ => Some("Please accept the terms and conditions to continue."))
       }
+      if !isInstallmentValid {
+        setInstallmentsError(InstallmentStrings.selectPlanError)
+        setErrorText(_ => Some(InstallmentStrings.selectPlanError))
+      }
+      // A saved method that does not ask for a CVV must never surface a CVC error.
+      switch selectedToken {
+      | Some(token) if token.payment_method === CARD && token.requires_cvv && !isCvcComplete =>
+        if savedCardCvv->Option.isNone {
+          setSavedCardCvv(_ => Some(""))
+        }
+      | _ => ()
+      }
       notifyValidationFailure()
     }
   }
@@ -584,28 +633,10 @@ let make = (
     None
   }, [selectedToken])
 
-  React.useEffect2(() => {
+  React.useEffect(() => {
     switch selectedToken {
     | Some(token) =>
-      let isFormComplete = switch token.payment_method {
-      | CARD =>
-        if token.requires_cvv {
-          switch savedCardCvv {
-          | Some(cvv) =>
-            cvv->String.length > 0 &&
-              Validation.cvcNumberInRange(
-                cvv,
-                token.card->Option.map(c => c.card_network)->Option.getOr(""),
-              )
-          | None => false
-          }
-        } else {
-          true
-        }
-      | _ => true
-      }
-
-      let status = isFormComplete ? PaymentEventTypes.Complete : PaymentEventTypes.Filling
+      let status = complete ? PaymentEventTypes.Complete : PaymentEventTypes.Filling
       let statusStr = PaymentEventTypes.formStatusValueToString(status)
 
       if prevStatusRef.current !== Some(statusStr) {
@@ -622,7 +653,7 @@ let make = (
           ~brand=card.card_network,
           ~expiryMonth=card.expiry_month,
           ~expiryYear=card.expiry_year,
-          ~isCvcComplete=isFormComplete,
+          ~isCvcComplete,
         )
         emitter.emitCardInfo(~info)
       | None => ()
@@ -630,7 +661,7 @@ let make = (
     | None => ()
     }
     None
-  }, (selectedToken, savedCardCvv))
+  }, (selectedToken, savedCardCvv, isCvcComplete, complete))
 
   React.useEffect(() => {
     if isScreenFocus {
@@ -658,6 +689,8 @@ let make = (
     errorText,
     isSaveCardCheckboxSelected,
     isScreenFocus,
+    selectedInstallmentPlan,
+    showInstallments,
   ))
 
   <ErrorBoundary level={FallBackScreen.Screen} rootTag=nativeProp.rootTag>
@@ -696,6 +729,11 @@ let make = (
         setIsScreenFocus
         animated
         ?maxVisibleItems
+        setSelectedInstallmentPlan
+        showInstallments
+        setShowInstallments
+        installmentsError
+        setInstallmentsError
       />
     </View>
     {showDisclaimer && savedCardCvv->Option.isSome

@@ -72,9 +72,29 @@ type sdkNextAction = {
   should_block_confirm: bool,
 }
 
+type installmentAmountDetails = {
+  amount_per_installment: float,
+  total_amount: float,
+}
+
+type installmentPlan = {
+  interest_rate: float,
+  number_of_installments: int,
+  billing_frequency: string,
+  amount_details: installmentAmountDetails,
+}
+
+type installmentOption = {
+  payment_method: string,
+  available_plans: array<installmentPlan>,
+}
+
 type intentData = {
   merchant_name: string,
   currency: string,
+  // `None` both when the key is absent and when the backend sends an empty list,
+  // so callers only ever have to check for `None`.
+  installment_options: option<array<installmentOption>>,
   payment_type: PaymentMethodType.mandateType,
   payment_type_str: option<string>,
   mandate_payment: option<string>,
@@ -328,9 +348,53 @@ let parseSdkNextAction = (dict: Dict.t<JSON.t>): sdkNextAction => {
   should_block_confirm: dict->getBool("should_block_confirm", false),
 }
 
-let parseIntentData = (dict: Dict.t<JSON.t>): intentData => {
+// Installment amounts may arrive as JSON numbers or as numeric strings; both are
+// accepted and anything else falls back to the caller supplied default so a single
+// malformed value can never fail the whole payment-methods parse.
+let getNumber = (dict: Dict.t<JSON.t>, key, default) =>
+  switch dict->Dict.get(key)->Option.map(JSON.Classify.classify) {
+  | Some(Number(value)) => value
+  | Some(String(value)) => value->Float.fromString->Option.getOr(default)
+  | _ => default
+  }
+
+let getAmountDetails = (dict: Dict.t<JSON.t>): installmentAmountDetails => {
+  amount_per_installment: dict->getNumber("amount_per_installment", 0.),
+  total_amount: dict->getNumber("total_amount", 0.),
+}
+
+let getInstallmentPlan = (dict: Dict.t<JSON.t>): installmentPlan => {
+  interest_rate: dict->getNumber("interest_rate", 0.),
+  number_of_installments: dict->getNumber("number_of_installments", 0.)->Float.toInt,
+  billing_frequency: dict->getString("billing_frequency", ""),
+  amount_details: dict
+  ->getOptionalObj("amount_details")
+  ->Option.getOr(Dict.make())
+  ->getAmountDetails,
+}
+
+let getInstallmentOptions = (dict: Dict.t<JSON.t>): option<array<installmentOption>> => {
+  let options =
+    dict
+    ->getArray("installment_options")
+    ->Array.filterMap(JSON.Decode.object)
+    ->Array.map((optionDict): installmentOption => {
+      payment_method: optionDict->getString("payment_method", ""),
+      available_plans: optionDict
+      ->getArray("available_plans")
+      ->Array.filterMap(JSON.Decode.object)
+      ->Array.map(getInstallmentPlan),
+    })
+  options->Array.length === 0 ? None : Some(options)
+}
+
+// `rootDict` is the whole payment-methods-list response: the currency shown next to
+// installment amounts falls back to the top level `currency` when the intent does
+// not carry one of its own.
+let parseIntentData = (dict: Dict.t<JSON.t>, ~rootDict: Dict.t<JSON.t>): intentData => {
   merchant_name: dict->getString("merchant_name", ""),
-  currency: dict->getString("currency", ""),
+  currency: dict->getString("currency", rootDict->getString("currency", "")),
+  installment_options: dict->getInstallmentOptions,
   payment_type: switch dict->getString("payment_type", "") {
   | "setup_mandate" => SETUP_MANDATE
   | "new_mandate" => NEW_MANDATE
@@ -401,6 +465,6 @@ let parseClientResponse = (
     ->getOptionalObj("sdk_next_action")
     ->Option.getOr(Dict.make())
     ->parseSdkNextAction,
-    intent_data: parseIntentData(intentDataDict),
+    intent_data: parseIntentData(intentDataDict, ~rootDict=dict),
   }
 }

@@ -83,6 +83,24 @@ let convertToScreamingSnakeCase = text => {
 
 let isEmptyDict = (dict: Dict.t<'a>) => dict->Dict.keysToArray->Array.length === 0
 
+// Two decimal presentation for amounts that already arrive in major units. The
+// fraction is padded or TRUNCATED, never rounded: 1000 -> "1000.00",
+// 1000.5 -> "1000.50", 1000.567 -> "1000.56".
+let formatAmountWithTwoDecimals = (amount: float) => {
+  let amountStr = amount->Float.toString
+  switch amountStr->String.split(".") {
+  | [integerPart] => `${integerPart}.00`
+  | [integerPart, fraction] =>
+    let paddedFraction = switch fraction->String.length {
+    | 0 => "00"
+    | 1 => `${fraction}0`
+    | _ => fraction->String.slice(~start=0, ~end=2)
+    }
+    `${integerPart}.${paddedFraction}`
+  | _ => amountStr
+  }
+}
+
 // TODO subtraction 365 days can be done in exactly one year way
 
 // let formattedDateTimeFloat = (dateTime: Date.t, format: string) => {

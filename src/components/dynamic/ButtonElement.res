@@ -52,6 +52,7 @@ let make = (
         Some(walletDict),
         // formData
         initialValues->Dict.get("email")->Option.mapOr(None, JSON.Decode.string),
+        None,
       )
     } else {
       setLoading(FillingDetails)

@@ -264,8 +264,14 @@ module PaymentMethodListView = {
     ~isPaymentMethodSelected,
     ~setSelectedToken,
     ~setIsScreenFocus,
+    ~setSelectedInstallmentPlan,
+    ~showInstallments,
+    ~setShowInstallments,
+    ~installmentsError,
+    ~setInstallmentsError,
   ) => {
     let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
+    let (clientData, _, _) = React.useContext(AllApiDataContextNew.allApiDataContext)
     let hideCardExpiry = nativeProp.configuration.paymentMethodLayout.savedMethodCustomization.hideCardExpiry
     let localeObj = GetLocale.useGetLocalObj()
     let {primaryColor, component, logoConfig} = ThemebasedStyle.useThemeBasedStyle()
@@ -273,6 +279,21 @@ module PaymentMethodListView = {
       ? logoConfig
       : None
     let emitter = PaymentEvents.usePaymentEventEmitter()
+
+    let hasInstallmentPlans =
+      PaymentUtils.filterInstallmentPlansByPaymentMethod(
+        clientData->Option.flatMap(data => data.intent_data.installment_options),
+        savedPaymentMethod.payment_method_str,
+      )->Array.length > 0
+
+    // A plan picked for one saved card must never leak into another.
+    React.useEffect1(() => {
+      if isPaymentMethodSelected {
+        setSelectedInstallmentPlan(None)
+        setShowInstallments(false)
+      }
+      None
+    }, [isPaymentMethodSelected])
 
     <CustomPressable
       onPress={_ => {
@@ -348,6 +369,21 @@ module PaymentMethodListView = {
         | _ => React.null
         }}
       </View>
+      <UIUtils.RenderIf
+        condition={isPaymentMethodSelected &&
+        savedPaymentMethod.payment_method === CARD &&
+        hasInstallmentPlans}>
+        <View style={s({paddingHorizontal: 12.->dp})}>
+          <InstallmentOptions
+            paymentMethod=savedPaymentMethod.payment_method_str
+            setSelectedInstallmentPlan
+            showInstallments
+            setShowInstallments
+            installmentsError
+            setInstallmentsError
+          />
+        </View>
+      </UIUtils.RenderIf>
       {isPaymentMethodSelected &&
       savedPaymentMethod.payment_method === CARD &&
       savedPaymentMethod.requires_cvv &&
@@ -380,6 +416,11 @@ let make = (
   ~animated,
   ~maxVisibleItems: int=3,
   ~setIsScreenFocus,
+  ~setSelectedInstallmentPlan,
+  ~showInstallments,
+  ~setShowInstallments,
+  ~installmentsError,
+  ~setInstallmentsError,
 ) => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
   let (showMore, setShowMore) = React.useState(_ => !animated)
@@ -410,6 +451,11 @@ let make = (
         ->Option.getOr(i === 0)}
         setSelectedToken
         setIsScreenFocus
+        setSelectedInstallmentPlan
+        showInstallments
+        setShowInstallments
+        installmentsError
+        setInstallmentsError
       />
     })
     ->React.array
