@@ -1,17 +1,20 @@
 open PaymentEvents
 
+// `isAdditionalValid` carries completeness that lives outside the dynamic form
+// (today: the installment plan selection) into the status reported to the host.
 let useFormStatusEmitter = (
   ~isFocused: bool,
   ~hasRequiredFields: bool,
   ~isFormValid: bool,
   ~isPristine: bool,
+  ~isAdditionalValid: bool=true,
 ) => {
   let emitter = PaymentEvents.usePaymentEventEmitter()
   let prevStatusRef = React.useRef(None)
 
   React.useEffect(() => {
     if isFocused {
-      let isComplete = !hasRequiredFields || isFormValid
+      let isComplete = (!hasRequiredFields || isFormValid) && isAdditionalValid
       let isEmpty = hasRequiredFields && isPristine && !isFormValid
       let status = computeFormStatus(~isComplete, ~isEmpty)
       let statusStr = PaymentEventTypes.formStatusValueToString(status)
@@ -29,5 +32,5 @@ let useFormStatusEmitter = (
     } else {
       None
     }
-  }, (isFocused, hasRequiredFields, isFormValid, isPristine))
+  }, (isFocused, hasRequiredFields, isFormValid, isPristine, isAdditionalValid))
 }

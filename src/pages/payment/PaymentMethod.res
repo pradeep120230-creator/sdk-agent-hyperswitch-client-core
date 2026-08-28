@@ -81,6 +81,7 @@ let make = (
     tabDict: RescriptCore.Dict.t<RescriptCore.JSON.t>,
     walletDict: option<RescriptCore.Dict.t<RescriptCore.JSON.t>>,
     email: option<string>,
+    selectedInstallmentPlan: option<ClientResponseType.installmentPlan>,
   ) => {
     setLoading(ProcessingPayments)
 
@@ -214,6 +215,7 @@ let make = (
       ~email?,
       ~screen_height=viewPortContants.screenHeight,
       ~screen_width=viewPortContants.screenWidth,
+      ~installment_data=?PaymentUtils.installmentBody(selectedInstallmentPlan),
       (),
     )
 

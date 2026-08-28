@@ -14,6 +14,27 @@ let showUseExisitingSavedCardsBtn = (
   displaySavedPaymentMethods
 }
 
+// Plans are keyed by the backend spelling of the payment method ("card",
+// "bank_redirect", ...) and only the first matching entry is honoured.
+let filterInstallmentPlansByPaymentMethod = (
+  installmentOptions: option<array<ClientResponseType.installmentOption>>,
+  paymentMethod: string,
+): array<ClientResponseType.installmentPlan> =>
+  installmentOptions
+  ->Option.getOr([])
+  ->Array.find(installmentOption => installmentOption.payment_method === paymentMethod)
+  ->Option.mapOr([], installmentOption => installmentOption.available_plans)
+
+// Only the two fields the backend needs to charge the plan are sent; the interest
+// rate and the amount breakup are display only.
+let installmentBody = (selectedInstallmentPlan: option<ClientResponseType.installmentPlan>): option<
+  PaymentConfirmTypes.installmentData,
+> =>
+  selectedInstallmentPlan->Option.map(plan => {
+    PaymentConfirmTypes.number_of_installments: plan.number_of_installments,
+    billing_frequency: plan.billing_frequency,
+  })
+
 let generateCardConfirmBody = (
   ~nativeProp: SdkTypes.nativeProp,
   ~payment_method_str: string,
@@ -29,6 +50,7 @@ let generateCardConfirmBody = (
   ~email=?,
   ~screen_height=?,
   ~screen_width=?,
+  ~installment_data=?,
   (),
 ): PaymentConfirmTypes.redirectType => {
   let isMandate = payment_type !== NORMAL
@@ -43,6 +65,7 @@ let generateCardConfirmBody = (
     ?payment_method_data,
     ?payment_token,
     ?email,
+    ?installment_data,
     payment_type: ?payment_type_str,
     customer_acceptance: ?(
       payment_token->Option.isNone &&
@@ -104,6 +127,7 @@ let generateSavedCardConfirmBody = (
   ~screen_height=?,
   ~screen_width=?,
   ~billing=?,
+  ~installment_data=?,
 ): PaymentConfirmTypes.redirectType => {
   client_secret: ?switch nativeProp.paymentSessionConfig.sdkAuthorization->Utils.getNonEmptyOption {
   | Some(_) => None
@@ -119,6 +143,7 @@ let generateSavedCardConfirmBody = (
     ->JSON.Encode.object
   ),
   payment_type: ?payment_type_str,
+  ?installment_data,
   browser_info: {
     user_agent: Utils.resolveUserAgent(~userAgent=nativeProp.sdkParams.userAgent),
     accept_header: "text\/html,application\/xhtml+xml,application\/xml;q=0.9,image\/webp,image\/apng,*\/*;q=0.8",

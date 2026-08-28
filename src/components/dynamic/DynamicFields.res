@@ -12,6 +12,7 @@ let make = (
   ~accessible: bool,
   ~isFocused: bool=false,
   ~checkEligibility: option<string> => unit=_ => (),
+  ~installmentSection: React.element=React.null,
 ) => {
   let (nativeProp, _) = React.useContext(NativePropContext.nativePropContext)
   let (clientData, _, _) = React.useContext(
@@ -96,6 +97,7 @@ let make = (
       </UIUtils.RenderIf>
       <Space height=10. />
     </UIUtils.RenderIf>
+    {installmentSection}
     <UIUtils.RenderIf
       condition={!isCardPayment && !isGiftCardPayment && sheetType !== DynamicFieldsSheet}>
       <UIUtils.RenderIf

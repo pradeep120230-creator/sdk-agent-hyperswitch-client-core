@@ -21,6 +21,13 @@ type customer_acceptance = {
 
 type mandate_data = {customer_acceptance: customer_acceptance}
 
+// Nested object appended to the confirm body only when an installment plan is
+// picked; the plan's interest rate and amount breakup stay client side.
+type installmentData = {
+  number_of_installments: int,
+  billing_frequency: string,
+}
+
 type redirectType = {
   client_secret?: string,
   return_url?: string,
@@ -35,6 +42,7 @@ type redirectType = {
   payment_type?: string,
   customer_acceptance?: customer_acceptance,
   card_cvc?: string,
+  installment_data?: installmentData,
 }
 
 type pollConfig = {

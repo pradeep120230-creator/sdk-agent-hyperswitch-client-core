@@ -38,6 +38,24 @@ let make = (
 
   let notifyValidationFailure = UseWidgetActions.useNotifyValidationFailure()
 
+  let (selectedInstallmentPlan, setSelectedInstallmentPlan) = React.useState(_ => None)
+  let setSelectedInstallmentPlan = React.useCallback1(plan => {
+    setSelectedInstallmentPlan(_ => plan)
+  }, [setSelectedInstallmentPlan])
+
+  let (showInstallments, setShowInstallments) = React.useState(_ => false)
+  let setShowInstallments = React.useCallback1(show => {
+    setShowInstallments(_ => show)
+  }, [setShowInstallments])
+
+  let (installmentsError, setInstallmentsError) = React.useState(_ => "")
+  let setInstallmentsError = React.useCallback1(error => {
+    setInstallmentsError(_ => error)
+  }, [setInstallmentsError])
+
+  // Opting into installments without picking a plan leaves the payment incomplete.
+  let isInstallmentValid = !showInstallments || selectedInstallmentPlan->Option.isSome
+
   let (
     requiredFields,
     initialValues,
@@ -54,13 +72,19 @@ let make = (
     let isEligibilityBlocked = isCardPayment && eligibilityStatus !== DynamicFieldsContext.Allowed
     if isEligibilityBlocked {
       ()
-    } else if isNicknameValid && (isFormValid || requiredFields->Array.length === 0) {
+    } else if (
+      isNicknameValid && isInstallmentValid && (isFormValid || requiredFields->Array.length === 0)
+    ) {
       processRequest(
         CommonUtils.mergeDict(initialValues, formData),
         None,
         formData->Dict.get("email")->Option.mapOr(None, JSON.Decode.string),
+        selectedInstallmentPlan,
       )
     } else {
+      if !isInstallmentValid {
+        setInstallmentsError(InstallmentStrings.selectPlanError)
+      }
       switch formMethods {
       | Some(methods: ReactFinalForm.Form.formMethods) => methods.submit()
       | None => ()
@@ -68,6 +92,33 @@ let make = (
       notifyValidationFailure()
     }
   }
+
+  // The block only makes sense once the BIN is known, and unmounting it resets the
+  // whole installment selection.
+  let cardBin =
+    CommonUtils.mergeDict(initialValues, formData)
+    ->Dict.get("payment_method_data")
+    ->Option.flatMap(JSON.Decode.object)
+    ->Option.mapOr([], Dict.valuesToArray)
+    ->Array.filterMap(JSON.Decode.object)
+    ->Array.filterMap(paymentMethodDict =>
+      paymentMethodDict->Dict.get("card_number")->Option.flatMap(JSON.Decode.string)
+    )
+    ->Array.get(0)
+    ->Option.getOr("")
+    ->Validation.clearSpaces
+
+  let installmentSection =
+    cardBin->String.length >= 6
+      ? <InstallmentOptions
+          paymentMethod=paymentMethodData.payment_method_str
+          setSelectedInstallmentPlan
+          showInstallments
+          setShowInstallments
+          installmentsError
+          setInstallmentsError
+        />
+      : React.null
 
   React.useEffect1(() => {
     setInitialValueCountry(defaultCountry)
@@ -79,6 +130,7 @@ let make = (
     ~hasRequiredFields=requiredFields->Array.length > 0,
     ~isFormValid,
     ~isPristine,
+    ~isAdditionalValid=isInstallmentValid,
   )
 
   React.useEffect(() => {
@@ -88,7 +140,7 @@ let make = (
         handlePress,
         payment_method_type: paymentMethodData.payment_method_type,
         payment_experience: paymentMethodData.payment_experience,
-        errorText: None,
+        errorText: installmentsError === "" ? None : Some(installmentsError),
       }
       setConfirmButtonData(confirmButton)
     }
@@ -103,6 +155,9 @@ let make = (
     formData,
     formMethods,
     isNicknameValid,
+    selectedInstallmentPlan,
+    showInstallments,
+    installmentsError,
   ))
 
   <DynamicFields
@@ -117,5 +172,6 @@ let make = (
     accessible
     isFocused=isScreenFocus
     checkEligibility
+    installmentSection
   />
 }
